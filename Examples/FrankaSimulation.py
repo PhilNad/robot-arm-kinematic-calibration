@@ -68,7 +68,7 @@ TEMPORARY_DATABASE = 1
 db = WRT.DbConnector(TEMPORARY_DATABASE)
 
 #Produce simulated data
-N_OBSERVATIONS = 100
+N_OBSERVATIONS = 20
 joint_positions = []
 for m in range(N_OBSERVATIONS):
     #Pick a random joint configuration
@@ -78,6 +78,7 @@ for m in range(N_OBSERVATIONS):
     #Record the EE pose and joint positions
     db.In('kine-cal').Set(f'ee-{m}').Wrt('world').Ei('world').As(obs_ee_pose)
     joint_positions.append(config)
+
 
 #Set the data
 cal.set_data('kine-cal', joint_positions)
