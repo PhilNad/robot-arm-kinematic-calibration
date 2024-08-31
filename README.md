@@ -145,5 +145,42 @@ Iteration result:
 The kinematic calibration has converged.
 ```
 
+### Real Robot Example
+This library was used to find the kinematic parameters of a real Franka Research 3 robot arm using a dataset collected with a RealSense D405 camera mounted on the robot end-effector. A calibration board was precisely mounted on the robot table, as shown in the following picture:
+![FR3_Calibration_Setup](https://github.com/user-attachments/assets/ac481fa2-d099-4bc2-a510-666ff133a48e)
+
+The dataset was collected by moving the robot to about 115 different poses, each having the camera (approximately) pointing at the centre of the calibration board. Assuming knowledge of the transform between the end-effector frame and the camera frame (a reasonable assumption since the camera mount was accurately 3D printed), end-effector poses were obtained from the camera images. The resulting dataset is [here](https://github.com/PhilNad/robot-arm-kinematic-calibration/blob/main/Examples/calib_data.pickle) and the code used to calibrate the robot is [here](https://github.com/PhilNad/robot-arm-kinematic-calibration/blob/main/Examples/FrankaReal.py).
+
+Using `SerialRobotKineCal.print_urdf_joint_definitions()`, joint definitions that can directly be used in the [fr3.urdf.xacro](https://github.com/frankaemika/franka_description/blob/main/robots/fr3/fr3.urdf.xacro) URDF file from the [franka_description](https://github.com/frankaemika/franka_description) package were obtained:
+```
+Definition of the joints in RPY-XYZ format for use in a URDF:
+        Joint panda_link0-panda_link1
+                XYZ: [4.66940862e-03 1.33320085e-04 3.32135211e-01]
+                RPY: [-7.87186237e-05  9.64086780e-03  9.43333437e-06]
+        Joint panda_link1-panda_link2
+                XYZ: [ 9.89596905e-05  3.21868027e-04 -8.41845003e-04]
+                RPY: [-1.56837522e+00 -1.81292251e-04  8.95620323e-06]
+        Joint panda_link2-panda_link3
+                XYZ: [-0.0006072  -0.31487821  0.00031979]
+                RPY: [ 1.56950118e+00 -1.32523377e-03  1.14910419e-05]
+        Joint panda_link3-panda_link4
+                XYZ: [ 0.08285224  0.00057119 -0.00112239]
+                RPY: [1.56817607e+00 5.13115656e-04 1.27735192e-03]
+        Joint panda_link4-panda_link5
+                XYZ: [-0.0823229   0.38269415 -0.00057144]
+                RPY: [-1.57377631e+00  1.09236370e-02 -5.66605662e-04]
+        Joint panda_link5-panda_link6
+                XYZ: [ 0.00130735  0.00031509 -0.0013069 ]
+                RPY: [1.56590035 0.00205777 0.01091949]
+        Joint panda_link6-panda_link7
+                XYZ: [ 0.0871673   0.00141573 -0.00030438]
+                RPY: [ 1.57225125  0.01596719 -0.00214542]
+        Joint panda_link7-panda_link8
+                XYZ: [-0.00139496  0.00218057  0.10560957]
+                RPY: [ 0.01627551  0.00927677 -0.01589182]
+```
+
+After replacing the nominal kinematic parameters in the URDF file with the calibrated ones, any ROS node should be able to benefit from the improved accuracy of the robot model. This includes the [MoveIt](https://github.com/moveit/moveit) motion planner, whose collision avoidance capabilities depend on accurate kinematic parameters. In our experiments, the robot was a lot less likely to collide with the environment after calibration.
+
 ## Technical Details
 The method described in [Local POE model for robot kinematic calibration](https://doi.org/10.1016/S0094-114X(01)00048-9) and used in this library is based on twists and on the product of exponentials (POE) formula for forward kinematics. Through an iterative least-squares optimization scheme, the twists representing perturbations to the pose of each link relative to the previous one are determined. Since the perturbations are relative to the previous link, the method is deemd *local*. This formulation greatly simplifies the implementation of the calibration algorithm. However, as pointed out in [this paper](https://doi.org/10.1109/TRO.2016.2593042), an equivalent formulation exists where less parameters are required (avoiding the introduction of redundant parameters and possibly slightly improving convergence speed). In practice, very few iterations are required to converge to a solution and the over-parametrization of the problem is not an issue. 
