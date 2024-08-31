@@ -94,47 +94,54 @@ result = cal.solve()
 produces
 ```
 Iteration result:
-        Norm of twist errors: 12.431556270414207
-        Avg. Position error: 0.9713648363842493
-        Max. Position error: 1.0427355104377947
-        Avg. Orientation error: 2.433933191530026
-        Max. Orientation error: 3.1195247053829678
+        Norm of twist errors: 12.4316
+        Avg. Position error: 0.9714
+        Max. Position error: 1.0427
+        Avg. Orientation error: 2.4339
+        Max. Orientation error: 3.1195
+        Joints uncertainty: [4.57e+13 4.46e+13 9.44e+15 2.64e+13 8.14e+15 2.38e+15 8.17e+15 7.76e+15]
 Iteration result:
-        Norm of twist errors: 10.041158668513901
-        Avg. Position error: 1.4228519743193728
-        Max. Position error: 1.6114296115837063
-        Avg. Orientation error: 1.5931265321482158
-        Max. Orientation error: 1.999041679657747
+        Norm of twist errors: 10.0412
+        Avg. Position error: 1.4229
+        Max. Position error: 1.6114
+        Avg. Orientation error: 1.5931
+        Max. Orientation error: 1.9990
+        Joints uncertainty: [5.78e+12 1.64e+12 3.47e+12 7.39e+12 9.71e+11 9.02e+12 2.02e+13 1.17e+12]
 Iteration result:
-        Norm of twist errors: 5.456772643642175
-        Avg. Position error: 1.1205980771753443
-        Max. Position error: 1.3692483878765427
-        Avg. Orientation error: 0.43595832229632425
-        Max. Orientation error: 0.6103540501733323
+        Norm of twist errors: 5.4568
+        Avg. Position error: 1.1206
+        Max. Position error: 1.3692
+        Avg. Orientation error: 0.4360
+        Max. Orientation error: 0.6104
+        Joints uncertainty: [4.26e+12 2.18e+11 1.17e+12 1.08e+12 2.06e+12 3.77e+11 4.56e+12 3.97e+11]
 Iteration result:
-        Norm of twist errors: 1.5277949165339897
-        Avg. Position error: 0.33726416637423345
-        Max. Position error: 0.35233404946893887
-        Avg. Orientation error: 0.05041879417722511
-        Max. Orientation error: 0.09529861186291314
+        Norm of twist errors: 1.5278
+        Avg. Position error: 0.3373
+        Max. Position error: 0.3523
+        Avg. Orientation error: 0.0504
+        Max. Orientation error: 0.0953
+        Joints uncertainty: [6.50e+09 9.55e+09 1.93e+09 6.37e+09 4.06e+09 3.51e+09 1.08e+10 5.68e+09]
 Iteration result:
-        Norm of twist errors: 0.11949158049642816
-        Avg. Position error: 0.02323637128277786
-        Max. Position error: 0.02954231075257232
-        Avg. Orientation error: 0.010726481396598427
-        Max. Orientation error: 0.025781375254400107
+        Norm of twist errors: 0.1195
+        Avg. Position error: 0.0232
+        Max. Position error: 0.0295
+        Avg. Orientation error: 0.0107
+        Max. Orientation error: 0.0258
+        Joints uncertainty: [1.75e+09 1.44e+11 1.35e+10 1.23e+10 9.22e+08 1.94e+11 1.14e+10 1.26e+11]
 Iteration result:
-        Norm of twist errors: 0.038420350048871545
-        Avg. Position error: 0.003187469913321188
-        Max. Position error: 0.008735252028559267
-        Avg. Orientation error: 0.006252833891332986
-        Max. Orientation error: 0.015481701033631137
+        Norm of twist errors: 0.0384
+        Avg. Position error: 0.0032
+        Max. Position error: 0.0087
+        Avg. Orientation error: 0.0063
+        Max. Orientation error: 0.0155
+        Joints uncertainty: [1.65e+09 2.14e+09 2.68e+09 5.40e+08 7.71e+09 2.22e+09 5.58e+09 2.55e+09]
 Iteration result:
-        Norm of twist errors: 0.038417630093349246
-        Avg. Position error: 0.0031872565756710367
-        Max. Position error: 0.008710570239250134
-        Avg. Orientation error: 0.006249730745030598
-        Max. Orientation error: 0.01549181983529222
+        Norm of twist errors: 0.0384
+        Avg. Position error: 0.0032
+        Max. Position error: 0.0087
+        Avg. Orientation error: 0.0062
+        Max. Orientation error: 0.0155
+        Joints uncertainty: [3.57e+09 3.46e+09 1.22e+09 2.58e+09 1.59e+09 2.11e+09 1.64e+09 3.39e+09]
 The kinematic calibration has converged.
 ```
 

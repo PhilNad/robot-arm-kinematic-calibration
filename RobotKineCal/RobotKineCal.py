@@ -12,7 +12,7 @@ class CalibrationResult:
         '''
         Initialize the calibration result.
 
-        Parameters:
+        Parameters
         -----------
         joints: list
             List of roboticstoolbox.Link objects representing the joints of the robot.
@@ -31,10 +31,32 @@ class CalibrationResult:
         '''
         Class to store the result of an iteration of the calibration.
         '''
-        def __init__(self, joint_local_nominal_poses, joint_local_screw_definitions, 
+        def __init__(self, joint_local_nominal_poses, joint_local_screw_definitions,
+                     A_all=None,
+                     twist_corrections=None, 
                      twist_errors=None, 
                      position_errors=None, 
                      orientation_errors=None) -> None:
+            '''
+            Initialize the iteration result.
+
+            Parameters
+            ----------
+            joint_local_nominal_poses: list
+                List of SE3 objects representing the pose of the i-th link relative to the previous link when the joint angles are zero.
+            joint_local_screw_definitions: list
+                List of screw axes for each joint and the end-effector.
+            A_all: numpy.ndarray
+                The data matrix matrix build from stacked A matrices when considered all observations as a numpy.ndarray of shape 6*N_OBSERVATIONS x 6*(N_JOINTS+1).
+            twist_corrections: numpy.ndarray
+                A 6*(N_JOINTS+1) x 1 vector containing the twist correction for each joint and for the end-effector. This is x in SerialRobotKineCal.solve.
+            twist_errors: numpy.ndarray
+                Vector of length 6(N_JOINTS+1) containing the twist errors for each joint and the end-effector. This is y_all in SerialRobotKineCal.solve.
+            position_errors: numpy.ndarray
+                Vector of length N_OBSERVATIONS containing the magnitude of the position difference between the observed and computed end-effector poses for each observation.
+            orientation_errors: numpy.ndarray
+                Vector of length N_OBSERVATIONS containing the magnitude of the orientation difference between the observed and computed end-effector poses for each observation.
+            '''
 
             #The i-th element of joint_local_nominal_poses is the pose of the i-th link 
             # relative to the previous link when the joint angles are zero.
@@ -43,21 +65,51 @@ class CalibrationResult:
             #The i-th element of joint_local_screws is the screw axis of the i-th joint relative
             # to the previous one. Since the end-effector link is fixed relative to the previous one, the last screw axis is zero.
             self.joint_local_screw_definitions = joint_local_screw_definitions
-            
-            #Vector of length 6(N_JOINTS+1) containing the twist errors for each joint and the end-effector
+
+            self.A_all = A_all
+            self.twist_corrections = twist_corrections
             self.twist_errors = twist_errors
-            #Vector of length N_OBSERVATIONS containing the magnitude of the position difference between
-            # the observed and computed end-effector poses for each observation.
             self.position_errors = position_errors
-            #Vector of length N_OBSERVATIONS containing the magnitude of the orientation difference between
-            # the observed and computed end-effector poses for each observation.
             self.orientation_errors = orientation_errors
+
+            #Number of joints
+            self.N_JOINTS = len(joint_local_screw_definitions) - 1
+            #Number of observations
+            self.N_OBSERVATIONS = len(position_errors)
         
+        def compute_uncertainty_estimate(self, A_all, x_all, y_all):
+            '''
+            Compute the uncertainty estimate of the calibration.
+
+            Parameters
+            -----------
+            A_all: numpy.ndarray
+                The A matrix for all observations as a numpy.ndarray of shape 6*N_OBSERVATIONS x 6*(N_JOINTS+1).
+            x_all: numpy.ndarray
+                The twist corrections for all observations as a numpy.ndarray of shape 6*(N_JOINTS+1) x 1.
+            y_all: numpy.ndarray
+                The twist errors for all observations as a numpy.ndarray of shape 6*N_OBSERVATIONS x 1.
+            
+            Returns
+            --------
+            A numpy.ndarray of shape N_JOINTS+1 containing the norm of the twist variance for each joint and the end-effector (a joint uncertainty estimate).
+            '''
+            #Sum of squared residuals
+            SSR = (y_all - A_all @ x_all).T @ (y_all - A_all @ x_all)
+            #Statistical degrees of freedom
+            df = 6*self.N_OBSERVATIONS - 6*(self.N_JOINTS+1)
+            #Reduced chi-squared statistic
+            rcss = SSR/df
+            #Variance estimates
+            sigma = rcss * np.diag(np.linalg.inv(A_all.T @ A_all))
+            twist_variance_norms = np.linalg.norm(sigma.reshape((6,self.N_JOINTS+1)),axis=0)
+            return twist_variance_norms
+
         def get_statistics(self):
             '''
             Compute statistics on the results of the iteration.
 
-            Returns:
+            Returns
             --------
             A dictionary containing the following statistics:
             - twist_errors_norm: The norm of the twist errors.
@@ -65,6 +117,7 @@ class CalibrationResult:
             - position_errors_max: The maximum of the position errors.
             - orientation_errors_mean: The mean of the orientation errors.
             - orientation_errors_max: The maximum of the orientation errors.
+            - joints_uncertainty: The uncertainty estimate of the calibration.
             '''
             stats = {}
             stats['twist_errors_norm'] = norm(self.twist_errors)
@@ -72,23 +125,26 @@ class CalibrationResult:
             stats['position_errors_max'] = np.max(self.position_errors)
             stats['orientation_errors_mean'] = np.mean(self.orientation_errors)
             stats['orientation_errors_max'] = np.max(self.orientation_errors)
+            stats['joints_uncertainty'] = self.compute_uncertainty_estimate(self.A_all, self.twist_corrections, self.twist_errors)
             return stats
 
         def print(self):
             stats = self.get_statistics()
 
             print("Iteration result:")
-            print(f"\tNorm of twist errors: {stats['twist_errors_norm']}")
-            print(f"\tAvg. Position error: {stats['position_errors_mean']}")
-            print(f"\tMax. Position error: {stats['position_errors_max']}")
-            print(f"\tAvg. Orientation error: {stats['orientation_errors_mean']}")
-            print(f"\tMax. Orientation error: {stats['orientation_errors_max']}")
+            print(f"\tNorm of twist errors: {stats['twist_errors_norm']:.4f}")
+            print(f"\tAvg. Position error: {stats['position_errors_mean']:.4f}")
+            print(f"\tMax. Position error: {stats['position_errors_max']:.4f}")
+            print(f"\tAvg. Orientation error: {stats['orientation_errors_mean']:.4f}")
+            print(f"\tMax. Orientation error: {stats['orientation_errors_max']:.4f}")
+            with np.printoptions(precision=2):
+                print(f"\tJoints uncertainty: {stats['joints_uncertainty']}")
 
     def add_iteration_result(self, iteration_result:IterationResult):
         '''
         Add the results of an iteration to the list of iteration results.
 
-        Parameters:
+        Parameters
         -----------
         iteration_result: IterationResult
             The result of an iteration of the calibration.
@@ -110,7 +166,7 @@ class CalibrationResult:
         '''
         Compute screw definitions for use with the PoE formula.
 
-        Returns:
+        Returns
         --------
         A list in which the first N_JOINTS elements are the screw axes of the joints and the last element is the pose of the end effector when all joint angles are zero.
         '''
@@ -144,7 +200,7 @@ class CalibrationResult:
 
         In a URDF file, each rotary joint is defined by its axis of rotation and the position of the joint relative to the previous link. 
 
-        Returns:
+        Returns
         --------
         A list of dictionaries where each dictionary contains the following keys:
         - name: The name of the joint (e.g. "link1-link2").
@@ -187,7 +243,7 @@ class SerialRobotKineCal:
         assuming that the robot is a serial chain from the base to the end effector and that the pose of the
         end effector can be measured relative to the base.
 
-        Parameters:
+        Parameters
         -----------
         robot_model: roboticstoolbox.ERobot
             The roboticstoolbox model of the robot.
@@ -246,7 +302,7 @@ class SerialRobotKineCal:
         '''
         Set the data for the calibration.
 
-        Parameters:
+        Parameters
         -----------
         wrt_world_name: str
             The name of the with_respect_to "world" in which the EE poses are written.
@@ -276,14 +332,14 @@ class SerialRobotKineCal:
         '''
         Compute the forward kinematics of the i-th link.
 
-        Parameters:
+        Parameters
         -----------
         link_index: int
             The index of the link for which to compute the forward kinematics.
         joint_positions: numpy.ndarray
             The joint angles as a 1xN_JOINTS numpy array.
         
-        Returns:
+        Returns
         --------
         The pose of the link_index-th link relative to the base frame as a spatialmath.SE3 object.
         '''
@@ -306,7 +362,7 @@ class SerialRobotKineCal:
         '''
         Update the twist definitions of the joints such as to account for the error in the EE pose.
 
-        Parameters:
+        Parameters
         -----------
         twist_corrections: numpy.ndarray
             The twist corrections to apply to each joint that, together, account for the error in the EE pose.
@@ -336,12 +392,12 @@ class SerialRobotKineCal:
         '''
         Build a matrix of elements that will be multiplied by the joint pose perturbations such as to account for the TCP error. See equations (16) and (25) in the paper.
 
-        Parameters:
+        Parameters
         -----------
         joint_positions: numpy.ndarray
             The joint angles as a 1xN_JOINTS numpy array.
 
-        Returns:
+        Returns
         --------
         The A matrix for the current observation as a numpy.ndarray of shape 6x6(N_JOINTS+1).
         '''
@@ -361,39 +417,12 @@ class SerialRobotKineCal:
             prev_T = T
 
         return A
-    
-    def compute_uncertainty_estimate(self, A_all, x_all, y_all):
-        '''
-        Compute the uncertainty estimate of the calibration.
-
-        Parameters:
-        -----------
-        A_all: numpy.ndarray
-            The A matrix for all observations as a numpy.ndarray of shape 6*N_OBSERVATIONS x 6*(N_JOINTS+1).
-        x_all: numpy.ndarray
-            The twist corrections for all observations as a numpy.ndarray of shape 6*(N_JOINTS+1) x 1.
-        y_all: numpy.ndarray
-            The twist errors for all observations as a numpy.ndarray of shape 6*N_OBSERVATIONS x 1.
-        
-        Returns:
-        --------
-        The uncertainty estimate (variance of the twist corrections) of the calibration as a numpy.ndarray of shape 6*(N_JOINTS+1) x 1.
-        '''
-        #Sum of squared residuals
-        SSR = (y_all - A_all @ x_all).T @ (y_all - A_all @ x_all)
-        #Statistical degrees of freedom
-        df = 6*self.N_OBSERVATIONS - 6*(self.N_JOINTS+1)
-        #Reduced chi-squared statistic
-        rcss = SSR/df
-        #Variance estimates
-        sigma = rcss * np.diag(np.linalg.inv(A_all.T @ A_all))
-        return sigma
 
     def solve(self, max_iterations:int=10, step_size:float=1.0):
         '''
         Solve the kinematic calibration problem via a iterative least squares method where at each iteration the screw axes are updated to minimize the error in the end effector pose. The process is stopped when the error has converged, when the error is increasing, or when the maximum number of iterations has been reached.
 
-        Parameters:
+        Parameters
         -----------
         max_iterations: int
             The maximum number of iterations to perform.
@@ -450,7 +479,9 @@ class SerialRobotKineCal:
 
             #Store the results of the iteration
             it_result = CalibrationResult.IterationResult(self.joint_local_nominal_poses, 
-                                                          self.joint_local_screws, 
+                                                          self.joint_local_screws,
+                                                          A_all,
+                                                          x, 
                                                           y_all, 
                                                           position_errors, 
                                                           orientation_errors)
@@ -473,12 +504,12 @@ class SerialRobotKineCal:
         '''
         Compute the screw axes for use with the PoE formula.
 
-        Parameters:
+        Parameters
         -----------
         calibration_result: CalibrationResult
             The result of the calibration.
 
-        Returns:
+        Returns
         --------
         A list in which the first N_JOINTS elements are the screw axes of the joints and the last element is the pose of the end effector when all joint angles are zero.
         '''
@@ -488,12 +519,12 @@ class SerialRobotKineCal:
         '''
         Compute the RPY-XYZ format of the joint definitions for use in a URDF file.
 
-        Parameters:
+        Parameters
         -----------
         calibration_result: CalibrationResult
             The result of the calibration.
 
-        Returns:
+        Returns
         --------
         A list of dictionaries where each dictionary contains the following keys:
         - name: The name of the joint (e.g. "link1-link2").
@@ -506,7 +537,7 @@ class SerialRobotKineCal:
         '''
         Print the screw axes for use with the PoE formula.
 
-        Parameters:
+        Parameters
         -----------
         calibration_result: CalibrationResult
             The result of the calibration.
@@ -529,7 +560,7 @@ class SerialRobotKineCal:
         '''
         Print the joint definitions for use in a URDF file.
 
-        Parameters:
+        Parameters
         -----------
         calibration_result: CalibrationResult
             The result of the calibration.
