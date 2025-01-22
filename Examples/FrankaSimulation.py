@@ -64,11 +64,10 @@ for l in robot_model.links:
 
 #Connect to the frame database that will be used to record
 # end-effector poses.
-TEMPORARY_DATABASE = 1
-db = WRT.DbConnector(TEMPORARY_DATABASE)
+db = WRT.DbConnector()
 
 #Produce simulated data
-N_OBSERVATIONS = 20
+N_OBSERVATIONS = 100
 joint_positions = []
 for m in range(N_OBSERVATIONS):
     #Pick a random joint configuration

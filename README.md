@@ -81,7 +81,7 @@ robot_model = rtb.models.URDF.Panda()
 ee_name = 'panda_link8'
 cal = SerialRobotKineCal(robot_model, ee_name, verbose=True)
 
-db = WRT.DbConnector(1)
+db = WRT.DbConnector()
 for i in range(len(observed_ee_poses)):
     db.In('kine-cal').Set(f'ee-{i}').Wrt('world').Ei('world').As(observed_ee_poses[i].A)
 
@@ -181,6 +181,10 @@ Definition of the joints in RPY-XYZ format for use in a URDF:
 ```
 
 After replacing the nominal kinematic parameters in the URDF file with the calibrated ones, any ROS node should be able to benefit from the improved accuracy of the robot model. This includes the [MoveIt](https://github.com/moveit/moveit) motion planner, whose collision avoidance capabilities depend on accurate kinematic parameters. In our experiments, the robot was a lot less likely to collide with the environment after calibration.
+
+## Frequently Asked Questions
+### My kinematic calibration is not converging. What can I do?
+- Assuming that the robot model you are using is correct, gather more observations. The more data you have, the more likely it is that the calibration will converge. You can play with `N_OBSERVATIONS` in the [Examples/FrankaSimulation.py](Examples/FrankaSimulation.py) file to see how the number of observations affects the calibration. 
 
 ## Technical Details
 The method described in [Local POE model for robot kinematic calibration](https://doi.org/10.1016/S0094-114X(01)00048-9) and used in this library is based on twists and on the product of exponentials (POE) formula for forward kinematics. Through an iterative least-squares optimization scheme, the twists representing perturbations to the pose of each link relative to the previous one are determined. Since the perturbations are relative to the previous link, the method is deemd *local*. This formulation greatly simplifies the implementation of the calibration algorithm. However, as pointed out in [this paper](https://doi.org/10.1109/TRO.2016.2593042), an equivalent formulation exists where less parameters are required (avoiding the introduction of redundant parameters and possibly slightly improving convergence speed). In practice, very few iterations are required to converge to a solution and the over-parametrization of the problem is not an issue. 

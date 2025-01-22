@@ -56,7 +56,7 @@ robot_model = rtb.models.URDF.Panda()
 ee_name = 'panda_link8'
 cal = SerialRobotKineCal(robot_model, ee_name, verbose=True)
 
-db = WRT.DbConnector(1)
+db = WRT.DbConnector()
 for i in range(len(observed_ee_poses)):
     db.In('kine-cal').Set(f'ee-{i}').Wrt('world').Ei('world').As(observed_ee_poses[i].A)
 

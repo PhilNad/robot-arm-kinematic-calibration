@@ -4,8 +4,7 @@ import with_respect_to as WRT
 from RobotKineCal.RobotKineCal import SerialRobotKineCal
 import pickle
 
-TEMPORARY_DATABASE = 1
-db = WRT.DbConnector(TEMPORARY_DATABASE)
+db = WRT.DbConnector()
 
 #Approximate pose of the camera relative to the link8 frame
 REALSENSE_X_OFFSET_MM        = 94.5     #millimeters
