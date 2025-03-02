@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='robot-arm-kinematic-calibration',
-    version='0.0.1',
+    version='0.1.0',
     description='Simple Python Library for Kinematic Calibration of Robot Arms (Serial Manipulators).',
     author='Philippe Nadeau',
     author_email='philippe.nadeau@robotics.utias.utoronto.ca',
