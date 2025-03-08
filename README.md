@@ -15,9 +15,9 @@ By virtue of relying on [the robotics toolbox](https://petercorke.github.io/robo
 It is also possible to define a custom robot model with RTB and use this library to calibrate it. For example with:
 ```python
 import roboticstoolbox as rtb
-from RobotKineCal import SerialRobotKineCal
+from RobotKineCal.RobotKineCal import SerialRobotKineCal
 #Load custom robot model
-nominal_robot_model = rtb.ERobot.URDF(Path(__file__).parents[1] / 'Examples' / 'gen3.urdf')
+nominal_robot_model = rtb.ERobot.URDF('Examples/gen3.urdf')
 #Calibrate (assuming configurations and observed_ee_poses are defined)
 cal = SerialRobotKineCal(nominal_robot_model, ee_name, verbose=True)
 cal.set_observations(configurations, observed_ee_poses)
@@ -29,6 +29,18 @@ Since the method used to produce the calibration data varies greatly between dif
 
 For instance, observations can be obtained from a motion capture system with markers attached to the robot end-effector, from a laser tracker, from a camera attached to the robot end-effector and observing a known pattern, etc.
 
+## Installation
+To install the library, simply clone the repository and use pip to install:
+```bash
+git clone git@github.com:PhilNad/robot-arm-kinematic-calibration.git
+cd robot-arm-kinematic-calibration
+pip install .
+```
+You should then be able to import the library in your Python scripts with:
+```python
+from RobotKineCal.RobotKineCal import SerialRobotKineCal
+```
+
 ## Usage Examples
 See [Examples/FrankaSimulation.py](Examples/FrankaSimulation.py) for an example on how to use this library to calibrate a Franka robot model using a simulated dataset, and [Examples/FrankaReal.py](Examples/FrankaReal.py) for an example on how to use this library to calibrate a real Franka robot using a dataset collected with a camera mounted on the end-effector of the robot (eye-in-hand). Additionally, [Examples/FromURDF.py](Examples/FromURDF.py) shows how to calibrate a custom robot model defined in a URDF file.
 
@@ -37,11 +49,7 @@ See [Examples/FrankaSimulation.py](Examples/FrankaSimulation.py) for an example 
 import numpy as np
 from spatialmath import SE3
 import roboticstoolbox as rtb
-
-import sys
-from pathlib import Path
-sys.path.insert(0, Path(__file__).parents[1].as_posix())
-from RobotKineCal import SerialRobotKineCal
+from RobotKineCal.RobotKineCal import SerialRobotKineCal
 
 #Joint configurations reached during data collection
 configurations = [
