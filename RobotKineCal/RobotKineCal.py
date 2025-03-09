@@ -238,7 +238,7 @@ class CalibrationResult:
 
         #End-effector
         joint_name = f"{self.joints[-1].name}-{self.joints[-1].children[0].name}"
-        zero_conf_ee_pose = zero_conf_joint_poses[-1]
+        zero_conf_ee_pose = self.iteration_results[-1].zero_conf_EE_pose
         X = previous_link_pose.inv() * zero_conf_ee_pose
         rpy = X.rpy(unit='rad',order='zyx')
         xyz = X.t
@@ -344,8 +344,8 @@ class SerialRobotKineCal:
                     # See: https://github.com/petercorke/robotics-toolbox-python/pull/441
                     screw_axis = np.block([skew(zero_conf_joint_pose.t) @ zero_conf_joint_pose.R[:, 2], zero_conf_joint_pose.R[:, 2]])
                     self.joint_screw_axis.append(screw_axis)
-                #Record the pose of the joint when the robot is in the zero configuration
-                self.joint_zero_conf_poses.append(zero_conf_joint_pose)
+                    #Record the pose of the joint when the robot is in the zero configuration
+                    self.joint_zero_conf_poses.append(zero_conf_joint_pose)
 
         #Verify that the robot has only revolute joints
         # A future version could support prismatic joints.
