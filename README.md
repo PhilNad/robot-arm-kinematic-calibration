@@ -126,8 +126,9 @@ The kinematic calibration has converged.
 ```
 
 ### Real Robot Example
-This library was used to find the kinematic parameters of a real Franka Research 3 robot arm using a dataset collected with a RealSense D405 camera mounted on the robot end-effector. A calibration board was precisely mounted on the robot table, as shown in the following picture:
-![FR3_Calibration_Setup](https://github.com/user-attachments/assets/ac481fa2-d099-4bc2-a510-666ff133a48e)
+This library was used to find the kinematic parameters of a real Franka Research 3 robot arm using a dataset collected with a RealSense D405 camera mounted on the robot end-effector and overlooking a calibration board, as shown in the following GIF:
+
+![FR3_Calibration_Setup](https://github.com/user-attachments/assets/793d800d-7953-4063-a9cf-7074337a6916)
 
 The dataset was collected by moving the robot to about 115 different poses, each having the camera (approximately) pointing at the centre of the calibration board. Assuming knowledge of the transform between the end-effector frame and the camera frame (a reasonable assumption since the camera mount was accurately 3D printed), end-effector poses were obtained from the camera images. The resulting dataset is [here](https://github.com/PhilNad/robot-arm-kinematic-calibration/blob/main/Examples/calib_data.pickle) and the code used to calibrate the robot is [here](https://github.com/PhilNad/robot-arm-kinematic-calibration/blob/main/Examples/FrankaReal.py).
 
@@ -135,29 +136,29 @@ Using `SerialRobotKineCal.print_urdf_joint_definitions()`, joint definitions tha
 ```
 Definition of the joints in RPY-XYZ format for use in a URDF:
 Joint panda_link0-panda_link1
-        XYZ: [ 1.46717027e-03  1.07142921e-04 -7.02042906e-06]
+        XYZ: [4.67752926e-03 1.33386504e-04 3.32977503e-01]
         RPY: [-7.88191822e-05  9.64086699e-03 -9.98194809e-07]
 Joint panda_link1-panda_link2
-        XYZ: [ 9.89653185e-05 -1.31223433e-04  3.31314727e-01]
-        RPY: [ 2.42121831e-03 -9.64077762e-03 -3.51593821e-06]
+        XYZ: [ 9.89653185e-05 -1.31223433e-04 -1.68527322e-03]
+        RPY: [-1.56837511e+00 -9.64077762e-03 -3.51593821e-06]
 Joint panda_link2-panda_link3
-        XYZ: [-0.00059432  0.00036725  0.00168825]
-        RPY: [-1.57209161e+00  9.46926952e-03 -1.40897999e-05]
+        XYZ: [ 0.00239793 -0.31767381  0.00077651]
+        RPY: [1.56950118e+00 1.40891682e-05 9.46926952e-03]
 Joint panda_link3-panda_link4
-        XYZ: [ 3.57252808e-04 -3.11294604e-01 -2.50704407e-04]
-        RPY: [ 1.56820097 -0.0026427  -0.00946449]
+        XYZ: [ 8.28532697e-02 -3.26817314e-05 -3.92459010e-03]
+        RPY: [ 1.56817596 -0.00946446  0.00264282]
 Joint panda_link4-panda_link5
-        XYZ: [ 8.25127849e-02 -6.07637054e-05  3.83759295e-03]
-        RPY: [ 1.56778872  0.01050374 -0.0026456 ]
+        XYZ: [-0.07844599  0.38868122 -0.00130173]
+        RPY: [-1.57377615 -0.00264545 -0.01050378]
 Joint panda_link5-panda_link6
-        XYZ: [-0.08115103  0.37751725  0.00154525]
-        RPY: [-1.57543479  0.02454876  0.01050109]
+        XYZ: [ 0.00134897 -0.00154525 -0.00648275]
+        RPY: [ 1.56590009 -0.01049793  0.02455011]
 Joint panda_link6-panda_link7
-        XYZ: [-0.00069518  0.00432953  0.00777427]
-        RPY: [ 1.57188994  0.01475571 -0.02449902]
+        XYZ: [ 0.08726884  0.00647582 -0.00217406]
+        RPY: [ 1.5722515  -0.02449635 -0.01476014]
 Joint panda_link7-panda_link8
-        XYZ: [ 0.07601011 -0.00010436  0.00450503]
-        RPY: [ 1.57889554e+00 -5.65783890e-05  1.46424774e-02]
+        XYZ: [-0.00130561  0.00223521  0.11176487]
+        RPY: [ 0.01627551  0.00927677 -0.05635541]
 ```
 
 After replacing the nominal kinematic parameters in the URDF file with the calibrated ones, any ROS node should be able to benefit from the improved accuracy of the robot model. This includes the [MoveIt](https://github.com/moveit/moveit) motion planner, whose collision avoidance capabilities depend on accurate kinematic parameters. In our experiments, the robot was a lot less likely to collide with the environment after calibration.
