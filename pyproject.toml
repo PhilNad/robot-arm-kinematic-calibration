@@ -1,0 +1,74 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "robotkinecal"
+description = "Simple Python library for kinematic calibration of robot arms (serial manipulators)."
+readme = "README.md"
+license = { file = "LICENSE" }
+# Upper bound: roboticstoolbox-python 1.1.1 ships an xacro helper that calls
+# xml.dom.minidom._write_data with the pre-3.13 signature, which raises TypeError
+# on Python 3.13. Lift the cap once rtb releases a fix.
+requires-python = ">=3.10,<3.13"
+authors = [
+    { name = "Philippe Nadeau", email = "philippe.nadeau@robotics.utias.utoronto.ca" },
+]
+maintainers = [
+    { name = "Sebastian Lederer", email = "sebastian.lederer@yandex.com" },
+]
+keywords = [
+    "robotics",
+    "kinematic-calibration",
+    "robot-arm",
+    "serial-manipulator",
+    "calibration",
+    "product-of-exponentials",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "numpy>=1.22,<2",
+    "spatialmath-python>=1.1",
+    "roboticstoolbox-python>=1.1",
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "ruff>=0.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/PhilNad/robot-arm-kinematic-calibration"
+Repository = "https://github.com/PhilNad/robot-arm-kinematic-calibration"
+Issues = "https://github.com/PhilNad/robot-arm-kinematic-calibration/issues"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "robotkinecal/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["robotkinecal"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "robotkinecal/",
+    "Examples/",
+    "tests/",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
+]

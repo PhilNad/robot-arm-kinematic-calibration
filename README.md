@@ -15,7 +15,7 @@ By virtue of relying on [the robotics toolbox](https://petercorke.github.io/robo
 It is also possible to define a custom robot model with RTB and use this library to calibrate it. For example with:
 ```python
 import roboticstoolbox as rtb
-from RobotKineCal.RobotKineCal import SerialRobotKineCal
+from robotkinecal import SerialRobotKineCal
 #Load custom robot model
 nominal_robot_model = rtb.ERobot.URDF('Examples/gen3.urdf')
 #Calibrate (assuming configurations and observed_ee_poses are defined)
@@ -30,15 +30,17 @@ Since the method used to produce the calibration data varies greatly between dif
 For instance, observations can be obtained from a motion capture system with markers attached to the robot end-effector, from a laser tracker, from a camera attached to the robot end-effector and observing a known pattern, etc.
 
 ## Installation
-To install the library, simply clone the repository and use pip to install:
+Install from PyPI:
 ```bash
-git clone git@github.com:PhilNad/robot-arm-kinematic-calibration.git
-cd robot-arm-kinematic-calibration
-pip install .
+pip install robotkinecal
 ```
-You should then be able to import the library in your Python scripts with:
+Or with [uv](https://docs.astral.sh/uv/):
+```bash
+uv add robotkinecal
+```
+You can then import the library in your Python scripts with:
 ```python
-from RobotKineCal.RobotKineCal import SerialRobotKineCal
+from robotkinecal import SerialRobotKineCal
 ```
 
 ## Usage Examples
@@ -49,7 +51,7 @@ See [Examples/FrankaSimulation.py](Examples/FrankaSimulation.py) for an example 
 import numpy as np
 from spatialmath import SE3
 import roboticstoolbox as rtb
-from RobotKineCal.RobotKineCal import SerialRobotKineCal
+from robotkinecal import SerialRobotKineCal
 
 #Joint configurations reached during data collection
 configurations = [

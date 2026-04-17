@@ -6,7 +6,7 @@ import pickle
 import sys
 from pathlib import Path
 sys.path.insert(0, Path(__file__).parents[1].as_posix())
-from RobotKineCal.RobotKineCal import SerialRobotKineCal
+from robotkinecal import SerialRobotKineCal
 
 db = WRT.DbConnector()
 

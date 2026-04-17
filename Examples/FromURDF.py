@@ -5,7 +5,7 @@ import roboticstoolbox as rtb
 import sys
 from pathlib import Path
 sys.path.insert(0, Path(__file__).parents[1].as_posix())
-from RobotKineCal.RobotKineCal import SerialRobotKineCal
+from robotkinecal import SerialRobotKineCal
 
 #Load a Kinova Gen3 robot model from a URDF file
 # This robot model is not included in the roboticstoolbox library.
