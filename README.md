@@ -94,6 +94,15 @@ cal.set_observations(configurations, observed_ee_poses)
 
 #Solve the calibration problem
 result = cal.solve()
+
+#The complete script also compares nominal/calibrated errors and prints the
+#calibrated POE and URDF parameters.
+screw_axes, zero_conf_ee_pose = cal.get_calibration(result)
+print("Termination reason:", result.termination_reason)
+print("Iterations:", result.nb_iterations_executed)
+print("Final twist error norm:", result.iteration_results[-1].post_update_twist_errors_norm)
+cal.print_screw_axes(result)
+cal.print_urdf_joint_definitions(result)
 ```
 produces
 ```
@@ -127,7 +136,27 @@ Iteration #4 result:
         Max. Orientation error: 0.0000
         Joints uncertainty: [2.3988e-18 1.8781e-18 4.2538e-18 4.9338e-18 6.9152e-18 8.4011e-18 1.0539e-17]
 The kinematic calibration has converged.
+
+Calibration summary
+-------------------
+Termination reason: converged
+Iterations: 4
+Final twist error norm: 8.832049e-09
+Regressor rank: 34/34
+Regressor condition number: 3.064929e+01
+
+Dataset error comparison
+------------------------
+Mean position error [m]: 5.656636e-02 -> 2.656028e-09
+Max position error [m]:  1.169498e-01 -> 3.769683e-09
+Mean orientation error [rad]: 6.321331e-02 -> 0.000000e+00
+Max orientation error [rad]:  8.841659e-02 -> 0.000000e+00
 ```
+
+The script then prints all seven calibrated screw axes, the calibrated
+zero-configuration end-effector transformation matrix, and the complete set of
+URDF XYZ/RPY joint definitions. These are the actual calibration parameters;
+the iteration messages above are solver diagnostics.
 
 ### Real Robot Example
 This library was used to find the kinematic parameters of a real Franka Research 3 robot arm using a dataset collected with a RealSense D405 camera mounted on the robot end-effector and overlooking a calibration board, as shown in the following GIF:

@@ -122,6 +122,13 @@ result = cal.solve(max_iterations=100, step_size=1.0)
 print("是否收敛：", result.has_converged)
 print("是否发散：", result.is_diverging)
 print("迭代次数：", result.nb_iterations_executed)
+
+# 获取并打印实际标定参数。
+screw_axes, zero_conf_ee_pose = cal.get_calibration(result)
+print("终止原因：", result.termination_reason)
+print("最终 twist 误差：", result.iteration_results[-1].post_update_twist_errors_norm)
+cal.print_screw_axes(result)
+cal.print_urdf_joint_definitions(result)
 ```
 
 可直接运行的完整数据示例见 [Examples/MinimalExample.py](Examples/MinimalExample.py)：
@@ -129,6 +136,27 @@ print("迭代次数：", result.nb_iterations_executed)
 ```bash
 python Examples/MinimalExample.py
 ```
+
+脚本完成后会继续输出以下结果摘要：
+
+```text
+Calibration summary
+-------------------
+Termination reason: converged
+Iterations: 4
+Final twist error norm: 8.832049e-09
+Regressor rank: 34/34
+Regressor condition number: 3.064929e+01
+
+Dataset error comparison
+------------------------
+Mean position error [m]: 5.656636e-02 -> 2.656028e-09
+Max position error [m]:  1.169498e-01 -> 3.769683e-09
+Mean orientation error [rad]: 6.321331e-02 -> 0.000000e+00
+Max orientation error [rad]:  8.841659e-02 -> 0.000000e+00
+```
+
+随后还会完整打印 7 个标定后关节螺旋轴、标定后的零位末端齐次变换，以及全部 URDF 关节 XYZ/RPY。上述参数才是实际标定结果，迭代过程中的误差、秩和条件数属于求解诊断信息。
 
 ## 使用自定义 URDF
 

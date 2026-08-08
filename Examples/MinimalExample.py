@@ -36,14 +36,99 @@ observed_ee_poses = [
     SE3.Rt(R=np.array([[-0.34883719892825377,-0.881267796852924,-0.3188725119446387],[0.16685186939773253,-0.3932098394115846,0.9041827668499315],[-0.9222109641087394,0.2622081089896144,0.28420739831629716]]),t=[0.34657502, -0.13572935, 0.49357116])
 ]
 
-#Load the model of the robot
-robot_model = rtb.models.URDF.Panda()
+def pose_errors(model_poses, measured_poses):
+    """Return position and orientation errors for two pose sequences."""
+    position_errors = []
+    orientation_errors = []
+    for model_pose, measured_pose in zip(model_poses, measured_poses):
+        pose_difference = measured_pose @ model_pose.inv()
+        position_errors.append(np.linalg.norm(pose_difference.t))
+        orientation_errors.append(pose_difference.angvec()[0])
+    return np.asarray(position_errors), np.asarray(orientation_errors)
 
-#Create the calibration object
-cal = SerialRobotKineCal(robot_model, ee_name='panda_link8', verbose=True)
 
-#Set the data
-cal.set_observations(configurations, observed_ee_poses)
+if __name__ == "__main__":
+    # Load the nominal robot model.
+    robot_model = rtb.models.URDF.Panda()
 
-#Solve the calibration problem
-result = cal.solve()
+    # Create and run the calibration.
+    cal = SerialRobotKineCal(
+        robot_model,
+        ee_name="panda_link8",
+        verbose=True,
+    )
+    cal.set_observations(configurations, observed_ee_poses)
+    result = cal.solve()
+
+    # Retrieve the calibrated Product-of-Exponentials parameters.
+    screw_axes, zero_conf_ee_pose = cal.get_calibration(result)
+    last_iteration = result.iteration_results[-1]
+
+    # Compare nominal and calibrated predictions on this example dataset.
+    nominal_poses = [
+        robot_model.fkine(q, end="panda_link8")
+        for q in configurations
+    ]
+    calibrated_poses = [
+        cal.forward_kinematics(cal.N_JOINTS + 1, q)
+        for q in configurations
+    ]
+    nominal_position_errors, nominal_orientation_errors = pose_errors(
+        nominal_poses,
+        observed_ee_poses,
+    )
+    calibrated_position_errors, calibrated_orientation_errors = pose_errors(
+        calibrated_poses,
+        observed_ee_poses,
+    )
+
+    print("\nCalibration summary")
+    print("-------------------")
+    print(f"Termination reason: {result.termination_reason}")
+    print(f"Iterations: {result.nb_iterations_executed}")
+    print(
+        "Final twist error norm: "
+        f"{last_iteration.post_update_twist_errors_norm:.6e}"
+    )
+    print(
+        "Regressor rank: "
+        f"{last_iteration.matrix_rank}/{last_iteration.N_PARAMS}"
+    )
+    print(f"Regressor condition number: {last_iteration.condition_number:.6e}")
+
+    print("\nDataset error comparison")
+    print("------------------------")
+    print(
+        "Mean position error [m]: "
+        f"{nominal_position_errors.mean():.6e} -> "
+        f"{calibrated_position_errors.mean():.6e}"
+    )
+    print(
+        "Max position error [m]:  "
+        f"{nominal_position_errors.max():.6e} -> "
+        f"{calibrated_position_errors.max():.6e}"
+    )
+    print(
+        "Mean orientation error [rad]: "
+        f"{nominal_orientation_errors.mean():.6e} -> "
+        f"{calibrated_orientation_errors.mean():.6e}"
+    )
+    print(
+        "Max orientation error [rad]:  "
+        f"{nominal_orientation_errors.max():.6e} -> "
+        f"{calibrated_orientation_errors.max():.6e}"
+    )
+
+    print("\nCalibrated screw axes")
+    print("---------------------")
+    with np.printoptions(precision=10, suppress=False):
+        for index, screw_axis in enumerate(screw_axes, start=1):
+            print(f"Joint {index}: {screw_axis}")
+
+        print("\nCalibrated zero-configuration end-effector pose")
+        print("------------------------------------------------")
+        print(zero_conf_ee_pose.A)
+
+    print("\nCalibrated URDF joint definitions")
+    print("---------------------------------")
+    cal.print_urdf_joint_definitions(result)
