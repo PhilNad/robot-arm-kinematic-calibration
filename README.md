@@ -1,4 +1,6 @@
 # Robot Arm Kinematic Calibration
+[English](README.md) | [简体中文](README_zh-CN.md)
+
 This simple Python library implements the method described in [POE-based robot kinematic calibration using axis configuration space and the adjoint error model](https://doi.org/10.1109/TRO.2016.2593042) to determine the kinematic parameters of a robot arm from the nominal robot model and a set of end-effector observations.
 
 **Features**
@@ -166,6 +168,32 @@ Joint panda_link7-panda_link8
 After replacing the nominal kinematic parameters in the URDF file with the calibrated ones, any ROS node should be able to benefit from the improved accuracy of the robot model. This includes the [MoveIt](https://github.com/moveit/moveit) motion planner, whose collision avoidance capabilities depend on accurate kinematic parameters. In our experiments, the robot was a lot less likely to collide with the environment after calibration.
 
 ## Frequently Asked Questions
+### How can I tune a noisy or ill-conditioned calibration?
+`solve()` accepts independent position/orientation weights and optional
+Tikhonov damping while preserving the original defaults:
+```python
+result = cal.solve(
+    step_size=0.5,
+    position_weight=1.0,
+    orientation_weight=0.5,
+    damping=1e-8,
+    backtracking=True,
+)
+```
+Each iteration result exposes `matrix_rank`, `condition_number`, and
+`singular_values` for observability diagnostics. It also distinguishes the raw
+least-squares solution (`twist_corrections`) from the scaled update actually
+applied to the model (`applied_twist_corrections`).
+With backtracking enabled (the default), a step that increases the residual is
+rejected and repeatedly halved. The iteration stores the accepted `step_size`,
+`pre_update_twist_errors_norm`, and `post_update_twist_errors_norm`. If no
+error-reducing step can be found, `termination_reason` is
+`"line_search_failed"` and the previous model is restored.
+
+`solve()` updates the calibrator's internal model. To compare independent
+solver settings from the same nominal model, call `cal.reset()` between runs;
+the loaded observations are retained.
+
 ### My kinematic calibration is not converging. What can I do?
 - Assuming that the robot model you are using is correct, gather more observations. The more data you have, the more likely it is that the calibration will converge. You can play with `N_OBSERVATIONS` in the [Examples/FrankaSimulation.py](Examples/FrankaSimulation.py) file to see how the number of observations affects the calibration. 
 

@@ -1,15 +1,21 @@
-from typing import List
+import numpy as np
+import roboticstoolbox as rtb
+from numpy.linalg import norm
 from spatialmath import SE3, Twist3
 from spatialmath.base import skew
-import roboticstoolbox as rtb
-import numpy as np
-from numpy.linalg import norm
+
 
 class CalibrationResult:
     '''
     Class to store the result of a kinematic calibration.
     '''
-    def __init__(self, robot_model:rtb.Robot, convergence_tolerance:float=1e-4) -> None:
+    def __init__(
+        self,
+        robot_model: rtb.Robot,
+        convergence_tolerance: float = 1e-4,
+        joints: list | None = None,
+        divergence_patience: int = 3,
+    ) -> None:
         '''
         Initialize the calibration result.
 
@@ -21,11 +27,16 @@ class CalibrationResult:
             The tolerance to consider that the error has converged.
         '''
         self.robot_model = robot_model
-        self.joints = [l for l in self.robot_model.links if l.isjoint]
+        self.joints = list(joints) if joints is not None else [
+            link for link in self.robot_model.links if link.isjoint
+        ]
         self.N_JOINTS = len(self.joints)
         self.convergence_tolerance = convergence_tolerance
         self.has_converged = False
         self.is_diverging = False
+        self.termination_reason = None
+        self.divergence_patience = divergence_patience
+        self._consecutive_error_increases = 0
         self.nb_iterations_executed = 0
         self.iteration_results = []
 
@@ -34,13 +45,15 @@ class CalibrationResult:
         Class to store the result of an iteration of the calibration.
         '''
         def __init__(self, 
-                     joint_screw_definitions:List[np.ndarray],
+                     joint_screw_definitions:list[np.ndarray],
                      zero_conf_EE_pose:SE3,
-                     A_all:np.ndarray=None,
-                     twist_corrections:np.ndarray=None, 
-                     twist_errors:np.ndarray=None, 
-                     position_errors:List[float]=None, 
-                     orientation_errors:List[float]=None) -> None:
+                     A_all:np.ndarray,
+                     twist_corrections:np.ndarray,
+                     twist_errors:np.ndarray,
+                     position_errors:list[float],
+                     orientation_errors:list[float],
+                     step_size:float=1.0,
+                     post_update_twist_errors_norm:float | None=None) -> None:
             '''
             Initialize the iteration result.
 
@@ -61,13 +74,20 @@ class CalibrationResult:
             orientation_errors: List[float]
                 List of N_OBSERVATIONS containing the magnitude of the orientation difference between the observed and computed end-effector poses for each observation.
             '''
-            self.zero_conf_EE_pose = zero_conf_EE_pose
-            self.joint_screw_definitions = joint_screw_definitions
-            self.A_all = A_all
-            self.twist_corrections = twist_corrections
-            self.twist_errors = twist_errors
-            self.position_errors = position_errors
-            self.orientation_errors = orientation_errors
+            # Store a snapshot: the optimizer continues mutating its model after
+            # this result has been created.
+            self.zero_conf_EE_pose = SE3(zero_conf_EE_pose.A.copy())
+            self.joint_screw_definitions = [axis.copy() for axis in joint_screw_definitions]
+            self.A_all = A_all.copy()
+            self.twist_corrections = twist_corrections.copy()
+            self.step_size = step_size
+            self.applied_twist_corrections = step_size * twist_corrections.copy()
+            self.twist_errors = twist_errors.copy()
+            self.pre_update_twist_errors = self.twist_errors.copy()
+            self.pre_update_twist_errors_norm = norm(self.twist_errors)
+            self.post_update_twist_errors_norm = post_update_twist_errors_norm
+            self.position_errors = list(position_errors)
+            self.orientation_errors = list(orientation_errors)
 
             #Number of joints
             self.N_JOINTS = len(joint_screw_definitions)
@@ -83,7 +103,12 @@ class CalibrationResult:
             self.N_PARAMS = 4*self.N_JOINTS+self.OBS_SIZE
 
             #Whether the observations are 3D/positions or 6D/poses
-            self.position_only = True if self.OBS_SIZE == 3 else False
+            self.position_only = self.OBS_SIZE == 3
+
+            # Observability diagnostics for the linearized calibration problem.
+            self.matrix_rank = np.linalg.matrix_rank(self.A_all)
+            self.singular_values = np.linalg.svd(self.A_all, compute_uv=False)
+            self.condition_number = np.linalg.cond(self.A_all)
         
         def compute_uncertainty_estimate(self, A_all, x_all, y_all):
             '''
@@ -103,15 +128,19 @@ class CalibrationResult:
             A numpy.ndarray of shape N_JOINTS+1 containing the norm of the twist variance for each joint and the end-effector (a joint uncertainty estimate).
             '''
             #Sum of squared residuals
-            SSR = (y_all - A_all @ x_all).T @ (y_all - A_all @ x_all)
+            residual = y_all - A_all @ x_all
+            SSR = float(np.sum(np.square(residual)))
             #Statistical degrees of freedom
-            df = 6*self.N_OBSERVATIONS - self.N_PARAMS
+            df = self.OBS_SIZE*self.N_OBSERVATIONS - self.N_PARAMS
+            if df <= 0:
+                return np.full(self.N_JOINTS, np.nan)
             #Reduced chi-squared statistic
             rcss = SSR/df
-            #Variance estimates
-            sigma = rcss * np.diag(np.linalg.inv(A_all.T @ A_all))
+            # Use a pseudoinverse so rank-deficient or ill-conditioned datasets
+            # produce a best-effort estimate instead of raising LinAlgError.
+            sigma = rcss * np.diag(np.linalg.pinv(A_all.T @ A_all))
             #Twist variance norms
-            twist_variance_norms = np.linalg.norm(sigma[0,:-self.OBS_SIZE].reshape((-1,4)), axis=1)
+            twist_variance_norms = np.linalg.norm(sigma[:-self.OBS_SIZE].reshape((-1,4)), axis=1)
                 
             return twist_variance_norms
 
@@ -136,6 +165,9 @@ class CalibrationResult:
             stats['orientation_errors_mean'] = np.mean(self.orientation_errors)
             stats['orientation_errors_max'] = np.max(self.orientation_errors)
             stats['joints_uncertainty'] = self.compute_uncertainty_estimate(self.A_all, self.twist_corrections, self.twist_errors)
+            stats['matrix_rank'] = self.matrix_rank
+            stats['condition_number'] = self.condition_number
+            stats['singular_values'] = self.singular_values.copy()
             return stats
 
         def print(self):
@@ -148,6 +180,14 @@ class CalibrationResult:
             print(f"\tMax. Orientation error: {stats['orientation_errors_max']:.4f}")
             with np.printoptions(precision=4):
                 print(f"\tJoints uncertainty: {stats['joints_uncertainty']}")
+            print(f"\tRegressor rank: {stats['matrix_rank']}/{self.N_PARAMS}")
+            print(f"\tRegressor condition number: {stats['condition_number']:.4e}")
+            print(f"\tApplied step size: {self.step_size:.4e}")
+            if self.post_update_twist_errors_norm is not None:
+                print(
+                    "\tPost-update twist error norm: "
+                    f"{self.post_update_twist_errors_norm:.4e}"
+                )
 
     def add_iteration_result(self, iteration_result:IterationResult):
         '''
@@ -168,8 +208,14 @@ class CalibrationResult:
 
             if abs(norm(current_result.twist_errors) - norm(previous_result.twist_errors)) < self.convergence_tolerance:
                 self.has_converged = True
+                self.termination_reason = "converged"
             elif norm(current_result.twist_errors) > norm(previous_result.twist_errors):
-                self.is_diverging = True
+                self._consecutive_error_increases += 1
+                if self._consecutive_error_increases >= self.divergence_patience:
+                    self.is_diverging = True
+                    self.termination_reason = "diverged"
+            else:
+                self._consecutive_error_increases = 0
 
     def get_screw_axes(self):
         '''
@@ -180,7 +226,7 @@ class CalibrationResult:
         A list of joint screw axes.
         '''
         result_from_last_iteration = self.iteration_results[-1]
-        return result_from_last_iteration.joint_screw_definitions
+        return [axis.copy() for axis in result_from_last_iteration.joint_screw_definitions]
 
     def get_zero_conf_EE_pose(self):
         '''
@@ -189,9 +235,9 @@ class CalibrationResult:
         A SE3 object defining the pose of the robot end-effector when all joint positions are zero.
         '''
         result_from_last_iteration = self.iteration_results[-1]
-        return result_from_last_iteration.zero_conf_EE_pose 
+        return SE3(result_from_last_iteration.zero_conf_EE_pose.A.copy())
     
-    def get_urdf_xyzrpy(self, zero_conf_joint_poses:List[SE3]):
+    def get_urdf_xyzrpy(self, zero_conf_joint_poses:list[SE3]):
         '''
         Compute the RPY-XYZ format of the joint definitions for use in a URDF file.
 
@@ -214,7 +260,7 @@ class CalibrationResult:
         # how the end-effector moves when the joints move. Hence, we cannot
         # use a PoERobot to generate URDF joint definitions.
         if isinstance(self.robot_model, rtb.PoERobot):
-            raise ValueError("A PoERobot does not describe joint positions, use a DHRobot or ERobot instead.")
+            raise TypeError("A PoERobot does not describe joint positions, use a DHRobot or ERobot instead.")
 
         joint_definitions = []
         previous_link_pose = SE3()
@@ -268,7 +314,7 @@ class SerialRobotKineCal:
     '''
     def __init__(self, 
                  robot_model:rtb.Robot, 
-                 ee_name:str=None,
+                 ee_name:str | None=None,
                  verbose=False):
         '''
         Build lists of links and joints from the roboticstoolbox.Robot model and the selected end effector,
@@ -284,7 +330,8 @@ class SerialRobotKineCal:
         verbose: bool
             If True, print additional information during the calibration process.
         '''
-        assert(isinstance(robot_model, rtb.Robot))
+        if not isinstance(robot_model, rtb.Robot):
+            raise TypeError("robot_model must be an instance of roboticstoolbox.Robot.")
         self.robot_model = robot_model
 
         #If True, print additional information during the calibration process
@@ -304,27 +351,75 @@ class SerialRobotKineCal:
 
         #The structure of PoERobot is different from the one DHRobot or ERobot
         if isinstance(robot_model, rtb.PoERobot):
-            self.joints = self.robot_model.links
-            self.joint_screw_axis = [axis.S.A for axis in self.robot_model.links]
+            # RTB 1.3 inserts fixed base and tool sentinel links but reports
+            # robot.n == 0 because PoELink ETS objects are world-frame constants.
+            # Older releases exposed only the actual POE links. Support both
+            # representations without relying on the broken ``n`` property.
+            if robot_model.n == 0 and len(robot_model.links) >= 2:
+                self.joints = list(robot_model.links[1:-1])
+            else:
+                self.joints = list(robot_model.links)
+            self.joint_screw_axis = [link.S.A.copy() for link in self.joints]
             self.zero_conf_EE_pose = self.robot_model.T0
             # With a PoERobot, local poses are undefined since
             # the PoE formula does not describe joint poses.
             self.joint_local_nominal_poses = None
             self.joint_zero_conf_poses = None
+        elif isinstance(robot_model, rtb.DHRobot):
+            # DHRobot does not support fkine(q, end=link). Robotics Toolbox can
+            # provide its equivalent POE representation directly, which is both
+            # simpler and less error-prone than reconstructing screw axes from DH.
+            screw_axes, self.zero_conf_EE_pose = robot_model.twists()
+            self.joints = list(robot_model.links)
+            self.joint_screw_axis = [axis.S.copy() for axis in screw_axes]
+            self.ee_name = ee_name or self.joints[-1].name
+            if ee_name is not None and ee_name != self.joints[-1].name:
+                raise ValueError(
+                    "Selecting an intermediate end effector is not supported for DHRobot."
+                )
+            self.joint_local_nominal_poses = [link.A(0) for link in self.joints]
+            self.joint_zero_conf_poses = []
+            zero_pose = SE3(robot_model.base)
+            for link in self.joints:
+                zero_pose *= link.A(0)
+                self.joint_zero_conf_poses.append(SE3(zero_pose.A.copy()))
         else:
-
             #If the user has not specified the end effector link,
             # assume that the last link is the end effector.
             if ee_name is None:
-                self.ee_name = self.joints[-1].children[0].name
+                if not self.robot_model.links:
+                    raise ValueError("The robot model does not contain any links.")
+                ee_name = self.robot_model.links[-1].name
+            self.ee_name = ee_name
 
             #Verify that the end effector link exists
             ee_link = self.robot_model.link_dict.get(ee_name)
             if ee_link is None:
                 raise ValueError(f"End-effector link '{ee_name}' does not exist.")
 
+            # Follow parent links from the selected end effector to the base.
+            # This excludes gripper or other branch joints that do not affect the
+            # selected end effector, and provides an unambiguous serial order.
+            chain_links = []
+            link = ee_link
+            visited_links = set()
+            while link is not None:
+                if id(link) in visited_links:
+                    raise ValueError("The robot model contains a cycle in its link graph.")
+                visited_links.add(id(link))
+                chain_links.append(link)
+                link = link.parent
+            chain_links.reverse()
+
+            if self.robot_model.base_link not in chain_links:
+                raise ValueError(
+                    f"End-effector link '{ee_name}' is not connected to the robot base."
+                )
+
             #Each element of self.joints is a roboticstoolbox Link object
-            self.joints = [l for l in self.robot_model.links if l.isjoint]
+            self.joints = [link for link in chain_links if link.isjoint]
+            if not self.joints:
+                raise ValueError("The selected end-effector chain contains no joints.")
 
             #Each element of joint_local_nominal_poses is the pose of the i-th link relative to the previous link
             # when the joint angles are zero.
@@ -333,11 +428,8 @@ class SerialRobotKineCal:
             #For each joint, define the screw axis of a revolute joint rotating about Z
             # and record the pose of the joint when the robot is in the zero configuration.
             self.joint_zero_conf_poses = []
-            for l in robot_model.links:
+            for l in chain_links:
                 zero_conf_joint_pose = robot_model.fkine(np.zeros(robot_model.n), l.name)
-                if l == ee_link:
-                    self.zero_conf_EE_pose = zero_conf_joint_pose
-                    break
                 if l.isjoint:
                     # NOTE: Assumes that the joint rotates about Z.
                     # This is a limitation of the roboticstolbox, which might be fixed in the future.
@@ -346,6 +438,11 @@ class SerialRobotKineCal:
                     self.joint_screw_axis.append(screw_axis)
                     #Record the pose of the joint when the robot is in the zero configuration
                     self.joint_zero_conf_poses.append(zero_conf_joint_pose)
+                if l == ee_link:
+                    self.zero_conf_EE_pose = zero_conf_joint_pose
+
+            if self.zero_conf_EE_pose is None:
+                raise ValueError(f"Could not compute the zero pose of end-effector '{ee_name}'.")
 
         #Verify that the robot has only revolute joints
         # A future version could support prismatic joints.
@@ -365,6 +462,19 @@ class SerialRobotKineCal:
         #Placeholder for the B matrix that has to be computed only once.
         self._B_Matrix = None
 
+        # Preserve the nominal state so callers can run independent calibration
+        # experiments with the same object.
+        self._initial_model_state = self._model_snapshot()
+
+    def reset(self):
+        """Restore the nominal kinematic model used at construction time.
+
+        Observations are retained, allowing another solve with different
+        numerical options without reloading the dataset.
+        """
+        self._restore_model_snapshot(self._initial_model_state)
+        self._B_Matrix = None
+
     def set_observations(self, joint_positions, observations):
         '''
         Parameters
@@ -377,15 +487,41 @@ class SerialRobotKineCal:
         '''
         if len(joint_positions) != len(observations):
             raise ValueError("The size of both lists must be equal.")
+        if not observations:
+            raise ValueError("At least one observation is required.")
+
+        normalized_joint_positions = []
+        for index, positions in enumerate(joint_positions):
+            positions = np.asarray(positions, dtype=float).reshape(-1)
+            if positions.shape != (self.N_JOINTS,):
+                raise ValueError(
+                    f"Joint configuration {index} must contain exactly "
+                    f"{self.N_JOINTS} values."
+                )
+            if not np.all(np.isfinite(positions)):
+                raise ValueError(f"Joint configuration {index} contains non-finite values.")
+            normalized_joint_positions.append(positions.copy())
 
         if isinstance(observations[0], SE3):
             self.position_only = False
             self.OBS_SIZE = 6
-        elif isinstance(observations[0], np.ndarray) and len(observations[0]) == 3:
+            if not all(isinstance(observation, SE3) for observation in observations):
+                raise ValueError("All observations must have the same type.")
+            normalized_observations = [SE3(observation.A.copy()) for observation in observations]
+        else:
             self.position_only = True
             self.OBS_SIZE = 3
-        else:
-            raise ValueError("Incorrect type of observation submitted.")
+            normalized_observations = []
+            for index, observation in enumerate(observations):
+                try:
+                    point = np.asarray(observation, dtype=float).reshape(-1)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("Observations must be SE3 poses or 3D points.") from exc
+                if point.shape != (3,):
+                    raise ValueError(f"Position observation {index} must contain exactly 3 values.")
+                if not np.all(np.isfinite(point)):
+                    raise ValueError(f"Position observation {index} contains non-finite values.")
+                normalized_observations.append(point.copy())
 
         #Number of kinematic parameters in the model
         self.N_PARAMS = 4*self.N_JOINTS+self.OBS_SIZE
@@ -393,8 +529,8 @@ class SerialRobotKineCal:
         #Number of observations (not equals to the length of the observation vector)
         self.N_OBSERVATIONS = len(observations)
 
-        self._observations = observations
-        self._joint_positions = joint_positions
+        self._observations = normalized_observations
+        self._joint_positions = normalized_joint_positions
 
     def forward_kinematics(self, link_index:int, joint_positions:np.ndarray):
         '''
@@ -415,6 +551,14 @@ class SerialRobotKineCal:
         #Verify that i is within the range of the number of joints
         if link_index < 0 or link_index > self.N_JOINTS+1:
             raise ValueError(f"Link index 'i' must be between 0 and {self.N_JOINTS+1}.")
+
+        joint_positions = np.asarray(joint_positions, dtype=float).reshape(-1)
+        if joint_positions.shape != (self.N_JOINTS,):
+            raise ValueError(
+                f"joint_positions must contain exactly {self.N_JOINTS} values."
+            )
+        if not np.all(np.isfinite(joint_positions)):
+            raise ValueError("joint_positions contains non-finite values.")
 
         T = SE3()
         for i in range(min(link_index, self.N_JOINTS)):
@@ -439,12 +583,14 @@ class SerialRobotKineCal:
             The step size to apply to the twist corrections during the optimization (default = 1.0).
         '''
         #Verify that the shape of the array is correct
-        if param_corrections.shape[0] != 4*self.N_JOINTS+self.OBS_SIZE:
+        param_corrections = np.asarray(param_corrections, dtype=float).reshape(-1)
+        if param_corrections.shape != (4*self.N_JOINTS+self.OBS_SIZE,):
             raise ValueError(f"The shape of the parameter corrections array must be (4*N_JOINTS+OBS_SIZE, 1)=({4*self.N_JOINTS+self.OBS_SIZE}, 1).")
         
         #Verify that the step size is positive
-        if step_size <= 0:
+        if not np.isfinite(step_size) or step_size <= 0:
             raise ValueError("The step size must be positive.")
+        param_corrections = step_size * param_corrections
 
         #Get the B matrix that maps the 4 parameters of each joint to a 6-dimensional twist
         B_all = self.B_Matrix()
@@ -500,8 +646,10 @@ class SerialRobotKineCal:
             w = joint_screw_axis[3:6]
             q = np.cross(w, v)
             #Find mutually perpendicular vectors w_1 and w_2 that are perpendicular to w_n
-            rand_vec = np.random.rand(3)
-            w_1 = np.cross(w, rand_vec)
+            # Deterministically choose the Cartesian axis least aligned with w.
+            # This avoids random results and near-zero cross products.
+            reference_axis = np.eye(3)[np.argmin(np.abs(w))]
+            w_1 = np.cross(w, reference_axis)
             w_1 /= np.linalg.norm(w_1)
             w_2 = np.cross(w, w_1)
             w_2 /= np.linalg.norm(w_2)
@@ -564,7 +712,54 @@ class SerialRobotKineCal:
         # otherwise, A is a 6 x (4*N_JOINTS+6) matrix
         return A
 
-    def solve(self, max_iterations:int=100, step_size:float=1.0):
+    def _twist_error_vector(self):
+        """Return the stacked residual vector for the current model state."""
+        errors = np.zeros((self.OBS_SIZE*self.N_OBSERVATIONS, 1))
+        for index, (joint_positions, observation) in enumerate(
+            zip(self._joint_positions, self._observations)
+        ):
+            model_pose = self.forward_kinematics(
+                self.N_JOINTS + 1, joint_positions
+            )
+            if self.position_only:
+                error = observation - model_pose.t
+            else:
+                error = (observation @ model_pose.inv()).log(twist=True)
+            errors[
+                self.OBS_SIZE*index:self.OBS_SIZE*(index+1)
+            ] = error.reshape((self.OBS_SIZE, 1))
+        return errors
+
+    def _model_snapshot(self):
+        """Capture mutable calibration state for a recoverable trial update."""
+        joint_poses = None
+        if self.joint_zero_conf_poses is not None:
+            joint_poses = [SE3(pose.A.copy()) for pose in self.joint_zero_conf_poses]
+        return (
+            [axis.copy() for axis in self.joint_screw_axis],
+            SE3(self.zero_conf_EE_pose.A.copy()),
+            joint_poses,
+        )
+
+    def _restore_model_snapshot(self, snapshot):
+        """Restore state captured by :meth:`_model_snapshot`."""
+        screw_axes, zero_pose, joint_poses = snapshot
+        self.joint_screw_axis = [axis.copy() for axis in screw_axes]
+        self.zero_conf_EE_pose = SE3(zero_pose.A.copy())
+        self.joint_zero_conf_poses = None if joint_poses is None else [
+            SE3(pose.A.copy()) for pose in joint_poses
+        ]
+
+    def solve(
+        self,
+        max_iterations:int=100,
+        step_size:float=1.0,
+        position_weight:float=1.0,
+        orientation_weight:float=1.0,
+        damping:float=0.0,
+        backtracking:bool=True,
+        min_step_size:float=1e-4,
+    ):
         '''
         Solve the kinematic calibration problem via a iterative least squares method where at each iteration the screw axes are updated to minimize the error in the end effector pose. The process is stopped when the error has converged, when the error is increasing, or when the maximum number of iterations has been reached.
 
@@ -575,7 +770,37 @@ class SerialRobotKineCal:
         
         step_size: float
             The step size to apply to the twist corrections during the optimization (default = 1.0).
+        position_weight: float
+            Weight applied to position residuals (default = 1.0).
+        orientation_weight: float
+            Weight applied to orientation residuals for pose observations (default = 1.0).
+        damping: float
+            Non-negative Tikhonov damping coefficient for the least-squares
+            problem (default = 0.0).
+        backtracking: bool
+            If True, halve the step until it reduces the residual (default = True).
+        min_step_size: float
+            Smallest step considered during backtracking (default = 1e-4).
         '''
+
+        if not self._observations:
+            raise RuntimeError("No observations have been set. Call set_observations() first.")
+        if not isinstance(max_iterations, int) or isinstance(max_iterations, bool) or max_iterations <= 0:
+            raise ValueError("max_iterations must be a positive integer.")
+        if not np.isfinite(step_size) or step_size <= 0:
+            raise ValueError("step_size must be a positive finite number.")
+        if not np.isfinite(position_weight) or position_weight <= 0:
+            raise ValueError("position_weight must be a positive finite number.")
+        if not np.isfinite(orientation_weight) or orientation_weight <= 0:
+            raise ValueError("orientation_weight must be a positive finite number.")
+        if not np.isfinite(damping) or damping < 0:
+            raise ValueError("damping must be a non-negative finite number.")
+        if not isinstance(backtracking, bool):
+            raise TypeError("backtracking must be a boolean.")
+        if not np.isfinite(min_step_size) or min_step_size <= 0:
+            raise ValueError("min_step_size must be a positive finite number.")
+        if min_step_size > step_size:
+            raise ValueError("min_step_size cannot be greater than step_size.")
 
         if self.position_only:
             if 3*self.N_OBSERVATIONS < 4*self.N_JOINTS+3:
@@ -584,7 +809,7 @@ class SerialRobotKineCal:
             if 6*self.N_OBSERVATIONS < 4*self.N_JOINTS+6:
                 raise ValueError("Not enough observations to solve.")
             
-        calibration_result = CalibrationResult(self.robot_model)
+        calibration_result = CalibrationResult(self.robot_model, joints=self.joints)
 
         #Iterative least squares
         for it in range(max_iterations):
@@ -638,37 +863,56 @@ class SerialRobotKineCal:
                 y_all[self.OBS_SIZE*m:self.OBS_SIZE*(m+1)] = y.reshape((self.OBS_SIZE,1))
                 A_all[self.OBS_SIZE*m:self.OBS_SIZE*(m+1), :] = A
 
+            if self.position_only:
+                row_weights = np.full(self.OBS_SIZE*self.N_OBSERVATIONS, position_weight)
+            else:
+                observation_weights = np.array(
+                    [position_weight] * 3 + [orientation_weight] * 3
+                )
+                row_weights = np.tile(observation_weights, self.N_OBSERVATIONS)
+            weighted_A_all = row_weights[:, None] * A_all
+            weighted_y_all = row_weights[:, None] * y_all
+
             identifiable_parameters = np.array(range(self.N_PARAMS))
             #Compute the column rank of A_all
-            A_rank = np.linalg.matrix_rank(A_all)
+            A_rank = np.linalg.matrix_rank(weighted_A_all)
             if A_rank < len(identifiable_parameters):
                 if self.position_only and len(identifiable_parameters) - A_rank == 2:
                     #In this case, it is likely that the measurement point lie on the axis
                     # of the last revolute joint. Consequently, the end-effector and last
                     # joint poses are confounded.
-                    print(f'WARNING: Verify that the measurement point does not lie on the axis of the last revolute joint.')
+                    print('WARNING: Verify that the measurement point does not lie on the axis of the last revolute joint.')
                 print(f'WARNING: Not all parameters are identifiable (rank of regressor is {A_rank}/{len(identifiable_parameters)}). You might be lacking diverse data.')
                 
                 #Iteratively detect and record parameters that contribute to the the rank (identifiable ones)
                 identifiable_parameters = []
                 for i in range(self.N_PARAMS):
-                    if np.linalg.matrix_rank(A_all[:,identifiable_parameters+[i]]) == len(identifiable_parameters)+1:
+                    if np.linalg.matrix_rank(weighted_A_all[:,identifiable_parameters+[i]]) == len(identifiable_parameters)+1:
                         identifiable_parameters.append(i)
                     else:
                         joint_nb, param_nb = divmod(i,4)
                         print(f"Parameter {i} (joint {joint_nb+1}, param {param_nb+1}) is not identifiable.")
-                unidentifiable_parameters = list(set(range(self.N_PARAMS)) - set(identifiable_parameters))
-
                 #Remove unidentifiable parameters from the A matrix
-                A_ident = A_all[:,identifiable_parameters]
+                A_ident = weighted_A_all[:,identifiable_parameters]
                 A_rank = np.linalg.matrix_rank(A_ident)
-                assert(A_rank == len(identifiable_parameters))
+                if A_rank != len(identifiable_parameters):
+                    raise RuntimeError("Failed to isolate a full-rank set of identifiable parameters.")
             else:
-                A_ident = A_all
+                A_ident = weighted_A_all
 
 
             #Solve for the perturbation to the joint zero pose such that the EE error is accounted for
-            k = np.linalg.lstsq(A_ident, y_all, rcond=1e-12)[0]
+            if damping > 0:
+                A_solve = np.vstack(
+                    [A_ident, np.sqrt(damping) * np.eye(A_ident.shape[1])]
+                )
+                y_solve = np.vstack(
+                    [weighted_y_all, np.zeros((A_ident.shape[1], 1))]
+                )
+            else:
+                A_solve = A_ident
+                y_solve = weighted_y_all
+            k = np.linalg.lstsq(A_solve, y_solve, rcond=1e-12)[0]
 
             #If some kinematic parameters were removed due to a rank deficiency
             # we set them to zero here such that k_full is complete again.
@@ -677,8 +921,25 @@ class SerialRobotKineCal:
                 k_full[k_full_idx] = k[k_idx]
             k = k_full
 
-            #Update the kinematic model taking into account the errors
-            self.update_twist_definitions(k, step_size)
+            # Update the model. With backtracking enabled, reject trial steps
+            # that increase the residual and restore the exact previous state.
+            model_before_update = self._model_snapshot()
+            pre_update_error_norm = norm(y_all)
+            applied_step_size = step_size
+            line_search_failed = False
+            while True:
+                self._restore_model_snapshot(model_before_update)
+                self.update_twist_definitions(k, applied_step_size)
+                post_update_error_norm = norm(self._twist_error_vector())
+                if not backtracking or post_update_error_norm <= pre_update_error_norm:
+                    break
+                applied_step_size *= 0.5
+                if applied_step_size < min_step_size:
+                    self._restore_model_snapshot(model_before_update)
+                    applied_step_size = 0.0
+                    post_update_error_norm = pre_update_error_norm
+                    line_search_failed = True
+                    break
 
             #Store the results of the iteration
             it_result = CalibrationResult.IterationResult(self.joint_screw_axis,
@@ -687,20 +948,32 @@ class SerialRobotKineCal:
                                                           k, 
                                                           y_all, 
                                                           position_errors, 
-                                                          orientation_errors)
+                                                          orientation_errors,
+                                                          applied_step_size,
+                                                          post_update_error_norm)
             calibration_result.add_iteration_result(it_result)
+
+            if line_search_failed:
+                calibration_result.has_converged = False
+                calibration_result.is_diverging = False
+                calibration_result.termination_reason = "line_search_failed"
 
             if self.verbose:
                 print(f"Iteration #{calibration_result.nb_iterations_executed} result:")
                 it_result.print()
 
-            if calibration_result.has_converged or calibration_result.is_diverging:
+            if line_search_failed or calibration_result.has_converged or calibration_result.is_diverging:
                 if self.verbose:
-                    if calibration_result.has_converged:
+                    if line_search_failed:
+                        print("The line search could not find an error-reducing step.")
+                    elif calibration_result.has_converged:
                         print("The kinematic calibration has converged.")
                     else:
                         print("The kinematic calibration is diverging.")
                 break
+
+        if calibration_result.termination_reason is None:
+            calibration_result.termination_reason = "max_iterations"
 
         return calibration_result
 
@@ -757,7 +1030,7 @@ class SerialRobotKineCal:
             print(f"\tJoint {i+1}:")
             print(f"\t\tv: {v}")
             print(f"\t\tw: {w}")
-        print(f"\tZero configuration pose:")
+        print("\tZero configuration pose:")
         print(f"\t\t{zero_conf_EE_pose.A[0,:]}")
         print(f"\t\t{zero_conf_EE_pose.A[1,:]}")
         print(f"\t\t{zero_conf_EE_pose.A[2,:]}")
