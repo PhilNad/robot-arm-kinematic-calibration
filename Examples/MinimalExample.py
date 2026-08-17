@@ -47,6 +47,17 @@ def pose_errors(model_poses, measured_poses):
     return np.asarray(position_errors), np.asarray(orientation_errors)
 
 
+def local_link_transforms(joint_poses, ee_pose):
+    """Convert zero-configuration poses into consecutive local transforms."""
+    transforms = []
+    previous_pose = SE3()
+    for joint_pose in joint_poses:
+        transforms.append(previous_pose.inv() @ joint_pose)
+        previous_pose = joint_pose
+    transforms.append(previous_pose.inv() @ ee_pose)
+    return transforms
+
+
 if __name__ == "__main__":
     # Load the nominal robot model.
     robot_model = rtb.models.URDF.Panda()
@@ -63,6 +74,11 @@ if __name__ == "__main__":
     # Retrieve the calibrated Product-of-Exponentials parameters.
     screw_axes, zero_conf_ee_pose = cal.get_calibration(result)
     last_iteration = result.iteration_results[-1]
+
+    # Build a fresh calibrator to retain the nominal parameters for comparison.
+    nominal_cal = SerialRobotKineCal(robot_model, ee_name="panda_link8")
+    nominal_screw_axes = nominal_cal.joint_screw_axis
+    nominal_zero_conf_ee_pose = nominal_cal.zero_conf_EE_pose
 
     # Compare nominal and calibrated predictions on this example dataset.
     nominal_poses = [
@@ -118,6 +134,76 @@ if __name__ == "__main__":
         f"{nominal_orientation_errors.max():.6e} -> "
         f"{calibrated_orientation_errors.max():.6e}"
     )
+
+    print("\nJoint-axis parameter changes")
+    print("----------------------------")
+    print("Joint | axis point shift [mm] | axis direction change [deg] | ||ΔS||")
+    for index, (nominal_axis, calibrated_axis) in enumerate(
+        zip(nominal_screw_axes, screw_axes),
+        start=1,
+    ):
+        nominal_direction = nominal_axis[3:] / np.linalg.norm(nominal_axis[3:])
+        calibrated_direction = calibrated_axis[3:] / np.linalg.norm(
+            calibrated_axis[3:]
+        )
+        nominal_axis_point = np.cross(nominal_direction, nominal_axis[:3])
+        calibrated_axis_point = np.cross(
+            calibrated_direction,
+            calibrated_axis[:3],
+        )
+        direction_change = np.degrees(
+            np.arccos(
+                np.clip(
+                    np.dot(nominal_direction, calibrated_direction),
+                    -1.0,
+                    1.0,
+                )
+            )
+        )
+        point_shift = 1e3 * np.linalg.norm(
+            calibrated_axis_point - nominal_axis_point
+        )
+        screw_change = np.linalg.norm(calibrated_axis - nominal_axis)
+        print(
+            f"{index:>5} | {point_shift:>21.6f} | "
+            f"{direction_change:>27.6f} | {screw_change:.6e}"
+        )
+
+    zero_pose_difference = zero_conf_ee_pose @ nominal_zero_conf_ee_pose.inv()
+    print("\nZero-configuration end-effector change")
+    print("--------------------------------------")
+    print(
+        "Translation change [mm]: "
+        f"{1e3*np.linalg.norm(zero_pose_difference.t):.6f}"
+    )
+    print(
+        "Orientation change [deg]: "
+        f"{np.degrees(zero_pose_difference.angvec()[0]):.6f}"
+    )
+
+    nominal_local_transforms = local_link_transforms(
+        nominal_cal.joint_zero_conf_poses,
+        nominal_zero_conf_ee_pose,
+    )
+    calibrated_local_transforms = local_link_transforms(
+        cal.joint_zero_conf_poses,
+        zero_conf_ee_pose,
+    )
+    urdf_definitions = cal.get_urdf_xyzrpy(result)
+    print("\nURDF local-transform changes")
+    print("----------------------------")
+    print("Joint | translation change [mm] | orientation change [deg]")
+    for definition, nominal_transform, calibrated_transform in zip(
+        urdf_definitions,
+        nominal_local_transforms,
+        calibrated_local_transforms,
+    ):
+        local_difference = calibrated_transform @ nominal_transform.inv()
+        print(
+            f"{definition['name']} | "
+            f"{1e3*np.linalg.norm(local_difference.t):.6f} | "
+            f"{np.degrees(local_difference.angvec()[0]):.6f}"
+        )
 
     print("\nCalibrated screw axes")
     print("---------------------")

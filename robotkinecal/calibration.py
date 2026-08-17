@@ -954,9 +954,16 @@ class SerialRobotKineCal:
             calibration_result.add_iteration_result(it_result)
 
             if line_search_failed:
-                calibration_result.has_converged = False
                 calibration_result.is_diverging = False
-                calibration_result.termination_reason = "line_search_failed"
+                if pre_update_error_norm <= calibration_result.convergence_tolerance:
+                    # At machine precision, no trial step may be measurably
+                    # better. Treat this as convergence instead of a failed
+                    # search caused by floating-point noise.
+                    calibration_result.has_converged = True
+                    calibration_result.termination_reason = "converged"
+                else:
+                    calibration_result.has_converged = False
+                    calibration_result.termination_reason = "line_search_failed"
 
             if self.verbose:
                 print(f"Iteration #{calibration_result.nb_iterations_executed} result:")
@@ -964,7 +971,7 @@ class SerialRobotKineCal:
 
             if line_search_failed or calibration_result.has_converged or calibration_result.is_diverging:
                 if self.verbose:
-                    if line_search_failed:
+                    if line_search_failed and not calibration_result.has_converged:
                         print("The line search could not find an error-reducing step.")
                     elif calibration_result.has_converged:
                         print("The kinematic calibration has converged.")

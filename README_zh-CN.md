@@ -2,6 +2,12 @@
 
 [English README](README.md) | 简体中文
 
+相关实施文档：
+
+- [眼在手外数据用于手眼与运动学标定：理论汇总](docs/eye_to_hand_kinematic_calibration_theory_zh-CN.md)：数学推导、复合模型、可辨识性和 URDF 边界；
+- [现场操作手册（SOP）](docs/field_calibration_sop_zh-CN.md)：按阶段执行、记录、验收和签字；
+- [部署与实施流程](docs/calibration_workflow_zh-CN.md)：流程说明、数据规范和技术背景。
+
 `robotkinecal` 是一个用于串联机械臂运动学标定的 Python 库。它实现了论文 [《POE-based robot kinematic calibration using axis configuration space and the adjoint error model》](https://doi.org/10.1109/TRO.2016.2593042) 中提出的方法，根据机器人的名义模型、关节配置以及实测末端执行器位姿，估计更准确的机器人运动学参数。
 
 ## 主要功能
@@ -158,6 +164,14 @@ Max orientation error [rad]:  8.841659e-02 -> 0.000000e+00
 
 随后还会完整打印 7 个标定后关节螺旋轴、标定后的零位末端齐次变换，以及全部 URDF 关节 XYZ/RPY。上述参数才是实际标定结果，迭代过程中的误差、秩和条件数属于求解诊断信息。
 
+运行以下命令可以生成包含收敛曲线、误差对比、关节轴变化和 URDF 变化图片的 Markdown 标定报告：
+
+```bash
+python Examples/GenerateCalibrationReport.py
+```
+
+已生成的示例报告见 [reports/minimal_example/minimal_example_calibration_report.md](reports/minimal_example/minimal_example_calibration_report.md)。
+
 ## 使用自定义 URDF
 
 可以用 Robotics Toolbox 加载自定义 URDF，然后将模型交给标定器：
@@ -253,6 +267,21 @@ cal.print_urdf_joint_definitions(result)
 
 ## 常见问题
 
+### 眼在手外的相机观测必须先做手眼标定吗？
+
+不一定。固定相机观察刚性安装在末端的 Board、Marker 或 Tracker 时：
+
+```text
+Camera_T_Target(q)
+= Camera_T_Base · Base_T_EE(q) · EE_T_Target
+```
+
+等式左右两侧的固定变换可以被复合 POE 模型吸收。因此，如果目标只是得到“关节角到固定相机坐标系下 Target 位姿”的映射，可以直接把 `Camera_T_Target` 作为完整位姿观测，不必提前单独完成手眼标定。
+
+但这种方式不能分别辨识 `Camera_T_Base`、`EE_T_Target` 和机器人 Base/EE 坐标系下的本体几何。求解后的关节螺旋轴表达在 Camera 坐标系中，末端零位姿态对应 Target，而不一定对应传入的 `ee_name`。因此该复合结果不能直接回写成原机器人 URDF 几何参数。
+
+如果目标是恢复机器人 Base/EE 物理坐标系下的参数或修改原 URDF，则仍需使用已知外参把观测转换为 `Base_T_EE`，或者在 URDF 中把 Target 建模为明确的固定子 link。数值对比和自动回归示例见 [FixedTargetFrameComparison.py](Examples/FixedTargetFrameComparison.py)。
+
 ### 如何调整含噪或病态的标定问题？
 
 `solve()` 支持分别设置位置、姿态权重以及可选的 Tikhonov 阻尼，默认值仍与原有算法一致：
@@ -287,6 +316,14 @@ result = cal.solve(
 8. 使用独立验证集判断问题来自过拟合还是数据系统误差。
 
 可以修改 [Examples/FrankaSimulation.py](Examples/FrankaSimulation.py) 中的 `N_OBSERVATIONS`，观察样本数量对收敛效果的影响。
+
+### 需要多少组采样数据？
+
+仓库没有固定样本数要求。7 自由度机械臂使用完整位姿时，方程计数下限仅为 6 组，但该下限不保证满秩、抗噪声或泛化能力。工程上建议从 20～30 个覆盖充分的完整位姿开始，检查回归矩阵秩、条件数和独立验证误差，再每次补采 10～20 个互补姿态。高质量动捕/激光跟踪通常可在 20～40 组内工作，稳定工业视觉约 30～60 组，常规标定板视觉约 50～100 组，高噪声或遮挡场景约 80～150 组。另保留 15～30 组独立验证数据。
+
+样本较少会产生两类不同后果：低于约束数量下限，或姿态激励不足导致回归矩阵秩亏时，部分参数不可辨识，通常无法得到唯一结果；样本刚好满秩时，求解器可能正常收敛，但结果对单帧噪声和数据划分非常敏感，表现为参数波动大、验证误差高。姿态充分且噪声近似独立时，增加样本主要改善精度和稳定性，其随机误差通常只近似按 `1 / sqrt(N)` 下降；重复采集大量相似姿态不会等比例提升效果，系统误差也不会因增加样本自动消失。
+
+仅位置观测约束更少，通常需要更多数据。详细的计算依据、分级建议和停止准则见[部署、采集与验证流程](docs/calibration_workflow_zh-CN.md#6-姿态规划与数据量)。
 
 ### 为什么提示参数不可辨识？
 

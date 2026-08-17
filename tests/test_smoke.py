@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 import roboticstoolbox as rtb
+from spatialmath import SE3
 
 from robotkinecal import CalibrationResult, SerialRobotKineCal
 
@@ -31,6 +32,105 @@ def test_minimal_calibration_converges():
     last_stats = result.iteration_results[-1].get_statistics()
     assert last_stats["position_errors_max"] < 1e-3
     assert last_stats["orientation_errors_max"] < 1e-3
+
+
+def test_fixed_measurement_target_transform_is_absorbed_by_terminal_pose():
+    """A rigid EE-to-target offset must not change the calibrated joint axes."""
+    reference_model = rtb.models.URDF.Panda()
+    observed_ee_poses = [
+        reference_model.fkine(q, end="panda_link8")
+        for q in CONFIGURATIONS
+    ]
+    ee_T_target = SE3.RPY([0.20, -0.15, 0.10], order="zyx") * SE3(
+        0.04, -0.03, 0.08
+    )
+    observed_target_poses = [pose @ ee_T_target for pose in observed_ee_poses]
+
+    ee_cal = SerialRobotKineCal(
+        rtb.models.URDF.Panda(), ee_name="panda_link8"
+    )
+    ee_cal.set_observations(CONFIGURATIONS, observed_ee_poses)
+    ee_result = ee_cal.solve(max_iterations=20)
+
+    target_cal = SerialRobotKineCal(
+        rtb.models.URDF.Panda(), ee_name="panda_link8"
+    )
+    target_cal.set_observations(CONFIGURATIONS, observed_target_poses)
+    target_result = target_cal.solve(max_iterations=20)
+
+    assert ee_result.has_converged
+    assert target_result.has_converged
+    for ee_axis, target_axis in zip(
+        ee_result.get_screw_axes(), target_result.get_screw_axes()
+    ):
+        np.testing.assert_allclose(target_axis, ee_axis, atol=1e-7, rtol=1e-7)
+
+    expected_target_zero_pose = ee_result.get_zero_conf_EE_pose() @ ee_T_target
+    np.testing.assert_allclose(
+        target_result.get_zero_conf_EE_pose().A,
+        expected_target_zero_pose.A,
+        atol=1e-7,
+        rtol=1e-7,
+    )
+
+    for q, observed_target_pose in zip(CONFIGURATIONS, observed_target_poses):
+        predicted_target_pose = target_cal.forward_kinematics(
+            target_cal.N_JOINTS + 1, q
+        )
+        np.testing.assert_allclose(
+            predicted_target_pose.A,
+            observed_target_pose.A,
+            atol=1e-7,
+            rtol=1e-7,
+        )
+
+
+def test_camera_and_target_transforms_define_a_camera_frame_poe_model():
+    """Fixed eye-to-hand transforms can be absorbed into a composite POE model."""
+    reference_model = rtb.models.URDF.Panda()
+    base_T_ee_poses = [
+        reference_model.fkine(q, end="panda_link8")
+        for q in CONFIGURATIONS
+    ]
+    camera_T_base = SE3.RPY([-0.10, 0.25, -0.18], order="zyx") * SE3(
+        0.6, -0.4, 1.2
+    )
+    ee_T_target = SE3.RPY([0.20, -0.15, 0.10], order="zyx") * SE3(
+        0.04, -0.03, 0.08
+    )
+    camera_T_target_poses = [
+        camera_T_base @ base_T_ee @ ee_T_target
+        for base_T_ee in base_T_ee_poses
+    ]
+
+    cal = SerialRobotKineCal(
+        rtb.models.URDF.Panda(), ee_name="panda_link8"
+    )
+    cal.set_observations(CONFIGURATIONS, camera_T_target_poses)
+    result = cal.solve(max_iterations=30)
+
+    assert result.has_converged
+    assert result.iteration_results[-1].post_update_twist_errors_norm < 1e-7
+    nominal_cal = SerialRobotKineCal(
+        rtb.models.URDF.Panda(), ee_name="panda_link8"
+    )
+    for nominal_axis, camera_axis in zip(
+        nominal_cal.joint_screw_axis, result.get_screw_axes()
+    ):
+        expected_camera_axis = camera_T_base.Ad() @ nominal_axis
+        np.testing.assert_allclose(
+            camera_axis, expected_camera_axis, atol=1e-7, rtol=1e-7
+        )
+
+    expected_terminal_pose = (
+        camera_T_base @ nominal_cal.zero_conf_EE_pose @ ee_T_target
+    )
+    np.testing.assert_allclose(
+        result.get_zero_conf_EE_pose().A,
+        expected_terminal_pose.A,
+        atol=1e-7,
+        rtol=1e-7,
+    )
 
 
 def test_position_only_calibration_converges():
