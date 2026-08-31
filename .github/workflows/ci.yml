@@ -30,6 +30,9 @@ jobs:
       - name: Run static checks
         run: uv run ruff check .
 
+      - name: Run tests
+        run: uv run pytest -q
+
       - name: Verify package import
         run: uv run python -c "import robotkinecal"
 

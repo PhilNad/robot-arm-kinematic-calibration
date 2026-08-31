@@ -925,13 +925,21 @@ class SerialRobotKineCal:
             # that increase the residual and restore the exact previous state.
             model_before_update = self._model_snapshot()
             pre_update_error_norm = norm(y_all)
+            pre_update_objective_norm = norm(weighted_y_all)
             applied_step_size = step_size
             line_search_failed = False
             while True:
                 self._restore_model_snapshot(model_before_update)
                 self.update_twist_definitions(k, applied_step_size)
-                post_update_error_norm = norm(self._twist_error_vector())
-                if not backtracking or post_update_error_norm <= pre_update_error_norm:
+                post_update_errors = self._twist_error_vector()
+                post_update_error_norm = norm(post_update_errors)
+                post_update_objective_norm = norm(
+                    row_weights[:, None] * post_update_errors
+                )
+                if (
+                    not backtracking
+                    or post_update_objective_norm <= pre_update_objective_norm
+                ):
                     break
                 applied_step_size *= 0.5
                 if applied_step_size < min_step_size:
