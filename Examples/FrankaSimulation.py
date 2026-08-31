@@ -1,10 +1,11 @@
-from spatialmath import SE3, SO3
-from spatialmath.base import skew
-import roboticstoolbox as rtb
-import numpy as np
-
 import sys
 from pathlib import Path
+
+import numpy as np
+import roboticstoolbox as rtb
+from spatialmath import SE3, SO3
+from spatialmath.base import skew
+
 sys.path.insert(0, Path(__file__).parents[1].as_posix())
 from robotkinecal import SerialRobotKineCal
                         
@@ -137,7 +138,7 @@ for i in range(len(estimated_screw_axes)):
     print(f'Actual screw axis:{perturbed_screw_axes[i]}')
     print(f'Estimated screw axis:{estimated_screw_axes[i]}')
 
-print(f'Error for end-effector:')
+print('Error for end-effector:')
 initial_error = np.linalg.norm((nominal_zero_conf_ee_pose.inv() @ perturbed_zero_conf_ee_pose).log(twist=True))
 final_error = np.linalg.norm((estimated_zero_conf_EE_pose.inv() @ perturbed_zero_conf_ee_pose).log(twist=True))
 print(f'\tInitial error: {initial_error:.4f}')
