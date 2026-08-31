@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  check:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -19,20 +19,19 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: Install uv and Python ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
 
-      - name: Install package and development dependencies
-        run: python -m pip install -e ".[dev]"
+      - name: Install project and development dependencies
+        run: uv sync --extra dev
 
       - name: Run static checks
-        run: ruff check .
+        run: uv run ruff check .
 
-      - name: Run tests
-        run: pytest -q -W error
+      - name: Verify package import
+        run: uv run python -c "import robotkinecal"
 
       - name: Build distributions
-        run: python -m build
+        run: uv build

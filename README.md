@@ -1,6 +1,4 @@
 # Robot Arm Kinematic Calibration
-[English](README.md) | [简体中文](README_zh-CN.md)
-
 This simple Python library implements the method described in [POE-based robot kinematic calibration using axis configuration space and the adjoint error model](https://doi.org/10.1109/TRO.2016.2593042) to determine the kinematic parameters of a robot arm from the nominal robot model and a set of end-effector observations.
 
 **Features**
@@ -31,7 +29,19 @@ Since the method used to produce the calibration data varies greatly between dif
 
 For instance, observations can be obtained from a motion capture system with markers attached to the robot end-effector, from a laser tracker, from a camera attached to the robot end-effector and observing a known pattern, etc.
 
+Each joint configuration must be paired with a measurement from the same stationary instant. Joint values must use radians, translations must use metres, and observations must be either `spatialmath.SE3` poses or NumPy position vectors with shape `(3,)`. Use actual encoder readings and configurations that exercise all calibrated joints across the intended workspace.
+
+A recommended calibration workflow is:
+
+1. Define the Base/EE frames, transform conventions, units, and calibration target.
+2. Verify the nominal model and setup with simulated data.
+3. Collect diverse, synchronized observations and reserve an independent validation set.
+4. Run calibration and check convergence, rank, condition number, residuals, and parameter plausibility.
+5. Validate the result before backing up and replacing the nominal model.
+
 ## Installation
+Python 3.10 through 3.12 is supported.
+
 Install from PyPI:
 ```bash
 pip install robotkinecal
@@ -95,14 +105,12 @@ cal.set_observations(configurations, observed_ee_poses)
 #Solve the calibration problem
 result = cal.solve()
 
-#The complete script also compares nominal/calibrated errors and prints the
-#calibrated POE and URDF parameters.
-screw_axes, zero_conf_ee_pose = cal.get_calibration(result)
+#Inspect and export the result
 print("Termination reason:", result.termination_reason)
-print("Iterations:", result.nb_iterations_executed)
-print("Final twist error norm:", result.iteration_results[-1].post_update_twist_errors_norm)
-cal.print_screw_axes(result)
-cal.print_urdf_joint_definitions(result)
+last_iteration = result.iteration_results[-1]
+print(f"Regressor rank: {last_iteration.matrix_rank}/{last_iteration.N_PARAMS}")
+screw_axes, zero_conf_ee_pose = cal.get_calibration(result)
+urdf_joint_definitions = cal.get_urdf_xyzrpy(result)
 ```
 produces
 ```
@@ -136,37 +144,14 @@ Iteration #4 result:
         Max. Orientation error: 0.0000
         Joints uncertainty: [2.3988e-18 1.8781e-18 4.2538e-18 4.9338e-18 6.9152e-18 8.4011e-18 1.0539e-17]
 The kinematic calibration has converged.
-
-Calibration summary
--------------------
 Termination reason: converged
-Iterations: 4
-Final twist error norm: 8.832049e-09
 Regressor rank: 34/34
-Regressor condition number: 3.064929e+01
-
-Dataset error comparison
-------------------------
-Mean position error [m]: 5.656636e-02 -> 2.656028e-09
-Max position error [m]:  1.169498e-01 -> 3.769683e-09
-Mean orientation error [rad]: 6.321331e-02 -> 0.000000e+00
-Max orientation error [rad]:  8.841659e-02 -> 0.000000e+00
 ```
 
-The script then prints all seven calibrated screw axes, the calibrated
-zero-configuration end-effector transformation matrix, and the complete set of
-URDF XYZ/RPY joint definitions. These are the actual calibration parameters;
-the iteration messages above are solver diagnostics.
-
-To generate a reusable Markdown calibration report with convergence, error,
-joint-axis, and URDF comparison plots, run:
-
-```bash
-python Examples/GenerateCalibrationReport.py
-```
-
-The generated example report is available at
-[reports/minimal_example/minimal_example_calibration_report.md](reports/minimal_example/minimal_example_calibration_report.md).
+`solve()` updates the calibrator's internal model. Call `cal.reset()` before
+running another calibration from the same nominal model; loaded observations
+are retained. Before deployment, verify the calibrated model on observations
+that were not used by the solver.
 
 ### Real Robot Example
 This library was used to find the kinematic parameters of a real Franka Research 3 robot arm using a dataset collected with a RealSense D405 camera mounted on the robot end-effector and overlooking a calibration board, as shown in the following GIF:
@@ -204,86 +189,11 @@ Joint panda_link7-panda_link8
         RPY: [ 0.01627551  0.00927677 -0.05635541]
 ```
 
-After replacing the nominal kinematic parameters in the URDF file with the calibrated ones, any ROS node should be able to benefit from the improved accuracy of the robot model. This includes the [MoveIt](https://github.com/moveit/moveit) motion planner, whose collision avoidance capabilities depend on accurate kinematic parameters. In our experiments, the robot was a lot less likely to collide with the environment after calibration.
+After independent validation, ROS nodes such as the [MoveIt](https://github.com/moveit/moveit) motion planner can use the updated robot model. Keep the nominal model for rollback, test the candidate URDF in simulation, and verify it on the robot at low speed before production use.
 
 ## Frequently Asked Questions
-### Do eye-to-hand camera observations require hand-eye calibration?
-
-Not necessarily. If a fixed camera observes a rigid target attached to the end
-effector, the measured poses satisfy
-
-```text
-Camera_T_Target(q)
-= Camera_T_Base · Base_T_EE(q) · EE_T_Target
-```
-
-The fixed transforms on the left and right can be absorbed into a composite
-POE model. Therefore, `Camera_T_Target` poses can be passed directly as full
-pose observations when the desired output is the mapping from joint positions
-to the target pose in the fixed camera frame. No separate hand-eye calibration
-is required for that specific objective.
-
-This does **not** identify `Camera_T_Base`, `EE_T_Target`, and the robot's
-base-frame geometry separately. The resulting screw axes are expressed in the
-camera frame and the terminal zero pose corresponds to the observed target,
-not necessarily to `ee_name`. Consequently, this composite result must not be
-written back as the original robot URDF geometry.
-
-If the objective is to recover the physical robot model in its Base/EE frames
-or update its URDF, first convert observations to `Base_T_EE` using known
-extrinsics, or represent the target as an explicit fixed child link. See
-[FixedTargetFrameComparison.py](Examples/FixedTargetFrameComparison.py) for a
-numerical comparison and regression example. A detailed derivation and
-engineering guide is available in the Chinese document
-[Eye-to-hand data for hand-eye and kinematic calibration](docs/eye_to_hand_kinematic_calibration_theory_zh-CN.md).
-
-### How can I tune a noisy or ill-conditioned calibration?
-`solve()` accepts independent position/orientation weights and optional
-Tikhonov damping while preserving the original defaults:
-```python
-result = cal.solve(
-    step_size=0.5,
-    position_weight=1.0,
-    orientation_weight=0.5,
-    damping=1e-8,
-    backtracking=True,
-)
-```
-Each iteration result exposes `matrix_rank`, `condition_number`, and
-`singular_values` for observability diagnostics. It also distinguishes the raw
-least-squares solution (`twist_corrections`) from the scaled update actually
-applied to the model (`applied_twist_corrections`).
-With backtracking enabled (the default), a step that increases the residual is
-rejected and repeatedly halved. The iteration stores the accepted `step_size`,
-`pre_update_twist_errors_norm`, and `post_update_twist_errors_norm`. If no
-error-reducing step can be found, `termination_reason` is
-`"line_search_failed"` and the previous model is restored.
-
-`solve()` updates the calibrator's internal model. To compare independent
-solver settings from the same nominal model, call `cal.reset()` between runs;
-the loaded observations are retained.
-
 ### My kinematic calibration is not converging. What can I do?
-- First verify frame conventions, units, synchronization, regressor rank, and
-  pose diversity. Add observations that excite weakly observed joints and
-  workspace directions; simply repeating similar poses usually does not help.
-  You can vary `N_OBSERVATIONS` in
-  [Examples/FrankaSimulation.py](Examples/FrankaSimulation.py) to study the
-  effect of observation count.
-
-### How many observations are required?
-There is no fixed repository-level requirement. For a seven-revolute-joint
-robot with full-pose observations, parameter counting gives a lower bound of
-only six poses, but that bound does not guarantee full rank, noise robustness,
-or validation accuracy. A practical workflow starts with 20--30 diverse poses,
-checks regressor rank, condition number, and a held-out validation set, then
-adds 10--20 targeted poses per round. Typical full-pose ranges are 20--40 for
-high-quality metrology, 30--60 for stable industrial vision, 50--100 for
-ordinary calibration-target vision, and 80--150 for noisy or occluded data.
-Keep another 15--30 independent poses for validation. Position-only
-observations generally require more data. See the
-[Chinese deployment and acquisition guide](docs/calibration_workflow_zh-CN.md#6-姿态规划与数据量)
-for the derivation, tiered recommendations, and stopping criteria.
+- First verify the frame conventions, units, synchronization, regressor rank, and pose diversity. Add observations that excite weakly observed joints and workspace directions; simply repeating similar poses usually does not help. You can vary `N_OBSERVATIONS` in [Examples/FrankaSimulation.py](Examples/FrankaSimulation.py) to study the effect of observation count.
 
 ## Technical Details
 The method described in [POE-based robot kinematic calibration using axis configuration space and the adjoint error model](https://doi.org/10.1109/TRO.2016.2593042) and used in this library is based on twists and on the product of exponentials (POE) formula for forward kinematics. Through an iterative least-squares optimization scheme, screw axes corrections minimizing the error between the observations and the forward kinematics of the robot are found.

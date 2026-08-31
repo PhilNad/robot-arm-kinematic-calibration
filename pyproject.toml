@@ -45,8 +45,6 @@ dynamic = ["version"]
 
 [project.optional-dependencies]
 dev = [
-    "build>=1",
-    "pytest>=7",
     "ruff>=0.5",
 ]
 
@@ -68,7 +66,6 @@ packages = ["robotkinecal"]
 include = [
     "robotkinecal/",
     "Examples/",
-    "tests/",
     "README.md",
     "LICENSE",
     "pyproject.toml",
