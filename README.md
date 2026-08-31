@@ -114,38 +114,64 @@ urdf_joint_definitions = cal.get_urdf_xyzrpy(result)
 ```
 produces
 ```
-> python Examples/MinimalExample.py 
+> python Examples/MinimalExample.py
 Iteration #1 result:
         Norm of twist errors: 0.2851
         Avg. Position error: 0.0566
         Max. Position error: 0.1169
         Avg. Orientation error: 0.0632
         Max. Orientation error: 0.0884
-        Joints uncertainty: [1.7910e-07 1.3972e-07 3.2196e-07 3.6824e-07 5.1620e-07 6.2999e-07 7.8914e-07]
+        Joints uncertainty: [1.7880e-07 1.4260e-07 3.0568e-07 3.6280e-07 5.1318e-07 6.4961e-07
+ 8.1453e-07]
+        Regressor rank: 34/34
+        Regressor condition number: 3.0679e+01
+        Applied step size: 1.0000e+00
+        Post-update twist error norm: 4.5038e-03
 Iteration #2 result:
         Norm of twist errors: 0.0045
         Avg. Position error: 0.0012
         Max. Position error: 0.0019
         Avg. Orientation error: 0.0006
         Max. Orientation error: 0.0009
-        Joints uncertainty: [1.8149e-14 1.4213e-14 3.2184e-14 3.7330e-14 5.2304e-14 6.3555e-14 7.9726e-14]
+        Joints uncertainty: [1.8194e-14 1.4515e-14 3.0653e-14 3.6798e-14 5.2051e-14 6.5421e-14
+ 8.2090e-14]
+        Regressor rank: 34/34
+        Regressor condition number: 3.0637e+01
+        Applied step size: 1.0000e+00
+        Post-update twist error norm: 3.4253e-06
 Iteration #3 result:
         Norm of twist errors: 0.0000
         Avg. Position error: 0.0000
         Max. Position error: 0.0000
         Avg. Orientation error: 0.0000
         Max. Orientation error: 0.0000
-        Joints uncertainty: [2.7885e-18 2.1832e-18 4.9448e-18 5.7353e-18 8.0385e-18 9.7659e-18 1.2251e-17]
+        Joints uncertainty: [2.7951e-18 2.2296e-18 4.7097e-18 5.6538e-18 7.9995e-18 1.0053e-17
+ 1.2614e-17]
+        Regressor rank: 34/34
+        Regressor condition number: 3.0649e+01
+        Applied step size: 1.0000e+00
+        Post-update twist error norm: 9.4614e-09
 Iteration #4 result:
         Norm of twist errors: 0.0000
         Avg. Position error: 0.0000
         Max. Position error: 0.0000
         Avg. Orientation error: 0.0000
         Max. Orientation error: 0.0000
-        Joints uncertainty: [2.3988e-18 1.8781e-18 4.2538e-18 4.9338e-18 6.9152e-18 8.4011e-18 1.0539e-17]
+        Joints uncertainty: [2.4045e-18 1.9180e-18 4.0515e-18 4.8637e-18 6.8816e-18 8.6485e-18
+ 1.0851e-17]
+        Regressor rank: 34/34
+        Regressor condition number: 3.0649e+01
+        Applied step size: 1.0000e+00
+        Post-update twist error norm: 8.8320e-09
 The kinematic calibration has converged.
+
+Calibration summary
+-------------------
 Termination reason: converged
+Iterations: 4
+Final twist error norm: 8.832049e-09
 Regressor rank: 34/34
+Regressor condition number: 3.064929e+01
 ```
 
 `solve()` updates the calibrator's internal model. Call `cal.reset()` before
