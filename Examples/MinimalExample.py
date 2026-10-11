@@ -1,9 +1,10 @@
-import numpy as np
-from spatialmath import SE3
-import roboticstoolbox as rtb
-
 import sys
 from pathlib import Path
+
+import numpy as np
+import roboticstoolbox as rtb
+from spatialmath import SE3
+
 sys.path.insert(0, Path(__file__).parents[1].as_posix())
 from robotkinecal import SerialRobotKineCal
 
@@ -35,14 +36,185 @@ observed_ee_poses = [
     SE3.Rt(R=np.array([[-0.34883719892825377,-0.881267796852924,-0.3188725119446387],[0.16685186939773253,-0.3932098394115846,0.9041827668499315],[-0.9222109641087394,0.2622081089896144,0.28420739831629716]]),t=[0.34657502, -0.13572935, 0.49357116])
 ]
 
-#Load the model of the robot
-robot_model = rtb.models.URDF.Panda()
+def pose_errors(model_poses, measured_poses):
+    """Return position and orientation errors for two pose sequences."""
+    position_errors = []
+    orientation_errors = []
+    for model_pose, measured_pose in zip(model_poses, measured_poses):
+        pose_difference = measured_pose @ model_pose.inv()
+        position_errors.append(np.linalg.norm(pose_difference.t))
+        orientation_errors.append(pose_difference.angvec()[0])
+    return np.asarray(position_errors), np.asarray(orientation_errors)
 
-#Create the calibration object
-cal = SerialRobotKineCal(robot_model, ee_name='panda_link8', verbose=True)
 
-#Set the data
-cal.set_observations(configurations, observed_ee_poses)
+def local_link_transforms(joint_poses, ee_pose):
+    """Convert zero-configuration poses into consecutive local transforms."""
+    transforms = []
+    previous_pose = SE3()
+    for joint_pose in joint_poses:
+        transforms.append(previous_pose.inv() @ joint_pose)
+        previous_pose = joint_pose
+    transforms.append(previous_pose.inv() @ ee_pose)
+    return transforms
 
-#Solve the calibration problem
-result = cal.solve()
+
+if __name__ == "__main__":
+    # Load the nominal robot model.
+    robot_model = rtb.models.URDF.Panda()
+
+    # Create and run the calibration.
+    cal = SerialRobotKineCal(
+        robot_model,
+        ee_name="panda_link8",
+        verbose=True,
+    )
+    cal.set_observations(configurations, observed_ee_poses)
+    result = cal.solve()
+
+    # Retrieve the calibrated Product-of-Exponentials parameters.
+    screw_axes, zero_conf_ee_pose = cal.get_calibration(result)
+    last_iteration = result.iteration_results[-1]
+
+    # Build a fresh calibrator to retain the nominal parameters for comparison.
+    nominal_cal = SerialRobotKineCal(robot_model, ee_name="panda_link8")
+    nominal_screw_axes = nominal_cal.joint_screw_axis
+    nominal_zero_conf_ee_pose = nominal_cal.zero_conf_EE_pose
+
+    # Compare nominal and calibrated predictions on this example dataset.
+    nominal_poses = [
+        robot_model.fkine(q, end="panda_link8")
+        for q in configurations
+    ]
+    calibrated_poses = [
+        cal.forward_kinematics(cal.N_JOINTS + 1, q)
+        for q in configurations
+    ]
+    nominal_position_errors, nominal_orientation_errors = pose_errors(
+        nominal_poses,
+        observed_ee_poses,
+    )
+    calibrated_position_errors, calibrated_orientation_errors = pose_errors(
+        calibrated_poses,
+        observed_ee_poses,
+    )
+
+    print("\nCalibration summary")
+    print("-------------------")
+    print(f"Termination reason: {result.termination_reason}")
+    print(f"Iterations: {result.nb_iterations_executed}")
+    print(
+        "Final twist error norm: "
+        f"{last_iteration.post_update_twist_errors_norm:.6e}"
+    )
+    print(
+        "Regressor rank: "
+        f"{last_iteration.matrix_rank}/{last_iteration.N_PARAMS}"
+    )
+    print(f"Regressor condition number: {last_iteration.condition_number:.6e}")
+
+    print("\nDataset error comparison")
+    print("------------------------")
+    print(
+        "Mean position error [m]: "
+        f"{nominal_position_errors.mean():.6e} -> "
+        f"{calibrated_position_errors.mean():.6e}"
+    )
+    print(
+        "Max position error [m]:  "
+        f"{nominal_position_errors.max():.6e} -> "
+        f"{calibrated_position_errors.max():.6e}"
+    )
+    print(
+        "Mean orientation error [rad]: "
+        f"{nominal_orientation_errors.mean():.6e} -> "
+        f"{calibrated_orientation_errors.mean():.6e}"
+    )
+    print(
+        "Max orientation error [rad]:  "
+        f"{nominal_orientation_errors.max():.6e} -> "
+        f"{calibrated_orientation_errors.max():.6e}"
+    )
+
+    print("\nJoint-axis parameter changes")
+    print("----------------------------")
+    print("Joint | axis point shift [mm] | axis direction change [deg] | ||ΔS||")
+    for index, (nominal_axis, calibrated_axis) in enumerate(
+        zip(nominal_screw_axes, screw_axes),
+        start=1,
+    ):
+        nominal_direction = nominal_axis[3:] / np.linalg.norm(nominal_axis[3:])
+        calibrated_direction = calibrated_axis[3:] / np.linalg.norm(
+            calibrated_axis[3:]
+        )
+        nominal_axis_point = np.cross(nominal_direction, nominal_axis[:3])
+        calibrated_axis_point = np.cross(
+            calibrated_direction,
+            calibrated_axis[:3],
+        )
+        direction_change = np.degrees(
+            np.arccos(
+                np.clip(
+                    np.dot(nominal_direction, calibrated_direction),
+                    -1.0,
+                    1.0,
+                )
+            )
+        )
+        point_shift = 1e3 * np.linalg.norm(
+            calibrated_axis_point - nominal_axis_point
+        )
+        screw_change = np.linalg.norm(calibrated_axis - nominal_axis)
+        print(
+            f"{index:>5} | {point_shift:>21.6f} | "
+            f"{direction_change:>27.6f} | {screw_change:.6e}"
+        )
+
+    zero_pose_difference = zero_conf_ee_pose @ nominal_zero_conf_ee_pose.inv()
+    print("\nZero-configuration end-effector change")
+    print("--------------------------------------")
+    print(
+        "Translation change [mm]: "
+        f"{1e3*np.linalg.norm(zero_pose_difference.t):.6f}"
+    )
+    print(
+        "Orientation change [deg]: "
+        f"{np.degrees(zero_pose_difference.angvec()[0]):.6f}"
+    )
+
+    nominal_local_transforms = local_link_transforms(
+        nominal_cal.joint_zero_conf_poses,
+        nominal_zero_conf_ee_pose,
+    )
+    calibrated_local_transforms = local_link_transforms(
+        cal.joint_zero_conf_poses,
+        zero_conf_ee_pose,
+    )
+    urdf_definitions = cal.get_urdf_xyzrpy(result)
+    print("\nURDF local-transform changes")
+    print("----------------------------")
+    print("Joint | translation change [mm] | orientation change [deg]")
+    for definition, nominal_transform, calibrated_transform in zip(
+        urdf_definitions,
+        nominal_local_transforms,
+        calibrated_local_transforms,
+    ):
+        local_difference = calibrated_transform @ nominal_transform.inv()
+        print(
+            f"{definition['name']} | "
+            f"{1e3*np.linalg.norm(local_difference.t):.6f} | "
+            f"{np.degrees(local_difference.angvec()[0]):.6f}"
+        )
+
+    print("\nCalibrated screw axes")
+    print("---------------------")
+    with np.printoptions(precision=10, suppress=False):
+        for index, screw_axis in enumerate(screw_axes, start=1):
+            print(f"Joint {index}: {screw_axis}")
+
+        print("\nCalibrated zero-configuration end-effector pose")
+        print("------------------------------------------------")
+        print(zero_conf_ee_pose.A)
+
+    print("\nCalibrated URDF joint definitions")
+    print("---------------------------------")
+    cal.print_urdf_joint_definitions(result)

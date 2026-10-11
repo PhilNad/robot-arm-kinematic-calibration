@@ -1,9 +1,10 @@
-import numpy as np
-from spatialmath import SE3
-import roboticstoolbox as rtb
-
 import sys
 from pathlib import Path
+
+import numpy as np
+import roboticstoolbox as rtb
+from spatialmath import SE3
+
 sys.path.insert(0, Path(__file__).parents[1].as_posix())
 from robotkinecal import SerialRobotKineCal
 

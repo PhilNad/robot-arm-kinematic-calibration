@@ -29,7 +29,19 @@ Since the method used to produce the calibration data varies greatly between dif
 
 For instance, observations can be obtained from a motion capture system with markers attached to the robot end-effector, from a laser tracker, from a camera attached to the robot end-effector and observing a known pattern, etc.
 
+Each joint configuration must be paired with a measurement from the same stationary instant. Joint values must use radians, translations must use metres, and observations must be either `spatialmath.SE3` poses or NumPy position vectors with shape `(3,)`. Use actual encoder readings and configurations that exercise all calibrated joints across the intended workspace.
+
+A recommended calibration workflow is:
+
+1. Define the Base/EE frames, transform conventions, units, and calibration target.
+2. Verify the nominal model and setup with simulated data.
+3. Collect diverse, synchronized observations and reserve an independent validation set.
+4. Run calibration and check convergence, rank, condition number, residuals, and parameter plausibility.
+5. Validate the result before backing up and replacing the nominal model.
+
 ## Installation
+Python 3.10 through 3.12 is supported.
+
 Install from PyPI:
 ```bash
 pip install robotkinecal
@@ -92,40 +104,80 @@ cal.set_observations(configurations, observed_ee_poses)
 
 #Solve the calibration problem
 result = cal.solve()
+
+#Inspect and export the result
+print("Termination reason:", result.termination_reason)
+last_iteration = result.iteration_results[-1]
+print(f"Regressor rank: {last_iteration.matrix_rank}/{last_iteration.N_PARAMS}")
+screw_axes, zero_conf_ee_pose = cal.get_calibration(result)
+urdf_joint_definitions = cal.get_urdf_xyzrpy(result)
 ```
 produces
 ```
-> python Examples/MinimalExample.py 
+> python Examples/MinimalExample.py
 Iteration #1 result:
         Norm of twist errors: 0.2851
         Avg. Position error: 0.0566
         Max. Position error: 0.1169
         Avg. Orientation error: 0.0632
         Max. Orientation error: 0.0884
-        Joints uncertainty: [1.7910e-07 1.3972e-07 3.2196e-07 3.6824e-07 5.1620e-07 6.2999e-07 7.8914e-07]
+        Joints uncertainty: [1.7880e-07 1.4260e-07 3.0568e-07 3.6280e-07 5.1318e-07 6.4961e-07
+ 8.1453e-07]
+        Regressor rank: 34/34
+        Regressor condition number: 3.0679e+01
+        Applied step size: 1.0000e+00
+        Post-update twist error norm: 4.5038e-03
 Iteration #2 result:
         Norm of twist errors: 0.0045
         Avg. Position error: 0.0012
         Max. Position error: 0.0019
         Avg. Orientation error: 0.0006
         Max. Orientation error: 0.0009
-        Joints uncertainty: [1.8149e-14 1.4213e-14 3.2184e-14 3.7330e-14 5.2304e-14 6.3555e-14 7.9726e-14]
+        Joints uncertainty: [1.8194e-14 1.4515e-14 3.0653e-14 3.6798e-14 5.2051e-14 6.5421e-14
+ 8.2090e-14]
+        Regressor rank: 34/34
+        Regressor condition number: 3.0637e+01
+        Applied step size: 1.0000e+00
+        Post-update twist error norm: 3.4253e-06
 Iteration #3 result:
         Norm of twist errors: 0.0000
         Avg. Position error: 0.0000
         Max. Position error: 0.0000
         Avg. Orientation error: 0.0000
         Max. Orientation error: 0.0000
-        Joints uncertainty: [2.7885e-18 2.1832e-18 4.9448e-18 5.7353e-18 8.0385e-18 9.7659e-18 1.2251e-17]
+        Joints uncertainty: [2.7951e-18 2.2296e-18 4.7097e-18 5.6538e-18 7.9995e-18 1.0053e-17
+ 1.2614e-17]
+        Regressor rank: 34/34
+        Regressor condition number: 3.0649e+01
+        Applied step size: 1.0000e+00
+        Post-update twist error norm: 9.4614e-09
 Iteration #4 result:
         Norm of twist errors: 0.0000
         Avg. Position error: 0.0000
         Max. Position error: 0.0000
         Avg. Orientation error: 0.0000
         Max. Orientation error: 0.0000
-        Joints uncertainty: [2.3988e-18 1.8781e-18 4.2538e-18 4.9338e-18 6.9152e-18 8.4011e-18 1.0539e-17]
+        Joints uncertainty: [2.4045e-18 1.9180e-18 4.0515e-18 4.8637e-18 6.8816e-18 8.6485e-18
+ 1.0851e-17]
+        Regressor rank: 34/34
+        Regressor condition number: 3.0649e+01
+        Applied step size: 1.0000e+00
+        Post-update twist error norm: 8.8320e-09
 The kinematic calibration has converged.
+
+Calibration summary
+-------------------
+Termination reason: converged
+Iterations: 4
+Final twist error norm: 8.832049e-09
+Regressor rank: 34/34
+Regressor condition number: 3.064929e+01
 ```
+
+`solve()` updates the calibrator's internal model. Call `cal.reset()` before
+running another calibration from the same nominal model; loaded observations
+are retained. Before deployment, verify the calibrated model on observations
+that were not used by the solver.
 
 ### Real Robot Example
 This library was used to find the kinematic parameters of a real Franka Research 3 robot arm using a dataset collected with a RealSense D405 camera mounted on the robot end-effector and overlooking a calibration board, as shown in the following GIF:
@@ -163,11 +215,11 @@ Joint panda_link7-panda_link8
         RPY: [ 0.01627551  0.00927677 -0.05635541]
 ```
 
-After replacing the nominal kinematic parameters in the URDF file with the calibrated ones, any ROS node should be able to benefit from the improved accuracy of the robot model. This includes the [MoveIt](https://github.com/moveit/moveit) motion planner, whose collision avoidance capabilities depend on accurate kinematic parameters. In our experiments, the robot was a lot less likely to collide with the environment after calibration.
+After independent validation, ROS nodes such as the [MoveIt](https://github.com/moveit/moveit) motion planner can use the updated robot model. Keep the nominal model for rollback, test the candidate URDF in simulation, and verify it on the robot at low speed before production use.
 
 ## Frequently Asked Questions
 ### My kinematic calibration is not converging. What can I do?
-- Assuming that the robot model you are using is correct, gather more observations. The more data you have, the more likely it is that the calibration will converge. You can play with `N_OBSERVATIONS` in the [Examples/FrankaSimulation.py](Examples/FrankaSimulation.py) file to see how the number of observations affects the calibration. 
+- First verify the frame conventions, units, synchronization, regressor rank, and pose diversity. Add observations that excite weakly observed joints and workspace directions; simply repeating similar poses usually does not help. You can vary `N_OBSERVATIONS` in [Examples/FrankaSimulation.py](Examples/FrankaSimulation.py) to study the effect of observation count.
 
 ## Technical Details
 The method described in [POE-based robot kinematic calibration using axis configuration space and the adjoint error model](https://doi.org/10.1109/TRO.2016.2593042) and used in this library is based on twists and on the product of exponentials (POE) formula for forward kinematics. Through an iterative least-squares optimization scheme, screw axes corrections minimizing the error between the observations and the forward kinematics of the robot are found.

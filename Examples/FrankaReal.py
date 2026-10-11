@@ -1,10 +1,11 @@
-from spatialmath import SE3
-import roboticstoolbox as rtb
-import with_respect_to as WRT
 import pickle
-
 import sys
 from pathlib import Path
+
+import roboticstoolbox as rtb
+import with_respect_to as WRT
+from spatialmath import SE3
+
 sys.path.insert(0, Path(__file__).parents[1].as_posix())
 from robotkinecal import SerialRobotKineCal
 
@@ -33,8 +34,8 @@ X_B_W = SE3.Ry(0,t=[top_left_corner[0], top_left_corner[1], -9.7/1000], unit="de
 db.In('kine-cal').Set('board').Wrt('world').Ei('world').As(X_B_W.A)
 
 #Load the data
-fin = open(Path(__file__).parent / 'calib_data.pickle', 'rb')
-kine_cal = pickle.load(fin)
+with open(Path(__file__).parent / 'calib_data.pickle', 'rb') as fin:
+    kine_cal = pickle.load(fin)
 joint_positions = kine_cal['joint_positions']
 camera_poses = kine_cal['camera_poses']
 
